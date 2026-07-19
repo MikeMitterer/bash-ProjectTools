@@ -26,4 +26,4 @@ Override via `--config <datei>`. Die Config gehört ins jeweilige Projekt-Repo.
 
 | Script | Zweck | Config |
 |---|---|---|
-| `src/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf` |
+| `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf` |

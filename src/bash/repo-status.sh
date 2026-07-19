@@ -22,7 +22,7 @@ set -euo pipefail
 
 # Logische Pfadaufloesung beibehalten (kein pwd -P) — der Fallback muss auch
 # ueber einen .libs/ProjectTools-Symlink funktionieren (.libs/BashLib daneben)
-BASH_LIBS="${BASH_LIBS:-$(cd "$(dirname "$0")/../../BashLib/src" && pwd)}"
+BASH_LIBS="${BASH_LIBS:-$(cd "$(dirname "$0")/../../../BashLib/src" && pwd)}"
 
 if [[ "${__COLORS_LIB__:=""}"  == "" ]]; then . "${BASH_LIBS}/colors.lib.sh";  fi
 if [[ "${__TOOLS_LIB__:=""}"   == "" ]]; then . "${BASH_LIBS}/tools.lib.sh";   fi
@@ -142,8 +142,8 @@ getRemoteStatus() {
     local repo_path="$1"
 
     local ahead behind
-    ahead=$(git  -C "${repo_path}" rev-list --count @{upstream}..HEAD 2>/dev/null || true)
-    behind=$(git -C "${repo_path}" rev-list --count HEAD..@{upstream} 2>/dev/null || true)
+    ahead=$(git  -C "${repo_path}" rev-list --count "@{upstream}..HEAD" 2>/dev/null || true)
+    behind=$(git -C "${repo_path}" rev-list --count "HEAD..@{upstream}" 2>/dev/null || true)
 
     if [[ -z "${ahead}" ]]; then
         echo -e "${YELLOW}kein Remote${NC}"
