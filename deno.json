@@ -1,0 +1,9 @@
+{
+  "lint": {
+    "include": ["src/deno/", "tests/deno/"]
+  },
+  "fmt": {
+    "include": ["src/deno/", "tests/deno/"],
+    "lineWidth": 100
+  }
+}

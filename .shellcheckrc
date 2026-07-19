@@ -1,0 +1,2 @@
+# Extern gesourcte Files (z.B. BashLib) nicht auflösen
+disable=SC1091
