@@ -54,9 +54,9 @@ REPOS=(
 ## Tools
 
 Diese Tabelle ist das Inventar: ein Projekt komponiert `make status` aus den
-gewünschten Scripten. Wie ein `status`-Target verdrahtet wird (`precheck` auf
-`PROJECT_TOOLS`, `## `-Target, Aufruf `$(PROJECT_TOOLS)/bash/<check>.sh --show`):
-siehe `makefile-conventions`-Skill, Abschnitt „Status-Target (ProjectTools-Scripte)".
+gewünschten Scripten. Wie ein `status`-Target verdrahtet wird (`## `-Target,
+Aufruf `$(PROJECT_TOOLS)/bash/<check>.sh --show`): siehe `makefile-conventions`-Skill,
+Abschnitt „Status-Target (ProjectTools-Scripte)".
 
 | Script | Zweck | Config |
 |---|---|---|
