@@ -11,12 +11,14 @@
 # konfigurierten GitHub-Repos an.
 #
 # Verwendung:
-#   repo-status.sh [--show] [--config <datei>] [--help]
+#   repo-status.sh [--show] [--config <datei>] [--example] [--help]
+#   repo-status.sh --example > .repo-status.conf.sh   # Starter-Config anlegen
 #   make status
 #
 # Optionen:
 #   -s | --show     Git-Status aller Workspace-Repos als Tabelle anzeigen
 #   -c | --config   Alternative Config-Datei (Default: ./.repo-status.conf.sh)
+#   -e | --example  Gueltige Beispiel-Config auf stdout ausgeben (umleitbar)
 #   -h | --help     Diese Hilfe anzeigen
 #------------------------------------------------------------------------------
 
@@ -44,6 +46,10 @@ else
     CONFIG_NAME="${CONFIG_BASE}.sh"
 fi
 readonly CONFIG_NAME
+# Anzeigename ohne fuehrendes ./ (das ./ ist nur fuers slash-erzwungene `source` noetig,
+# sonst wuerde bash die Datei im PATH statt im CWD suchen)
+CONFIG_DISPLAY="${CONFIG_NAME#./}"
+readonly CONFIG_DISPLAY
 readonly COL_WIDTH_NAME=28
 readonly COL_WIDTH_LOCAL=20
 
@@ -59,31 +65,78 @@ usage() {
     echo "Usage: ${APPNAME} [ options ]"
     echo
     usageLine "-s | --show   " "Git-Status aller Workspace-Repos als Tabelle anzeigen"
-    usageLine "-c | --config " "Alternative Config-Datei (Default: ./${CONFIG_NAME})"
+    usageLine "-c | --config " "Alternative Config-Datei (Default: ${CONFIG_DISPLAY})"
+    usageLine "-e | --example" "Gueltige Beispiel-Config auf stdout ausgeben (umleitbar)"
     usageLine "-h | --help   " "Diese Hilfe anzeigen"
     echo
     echo -e "${LIGHT_BLUE}Hints:${NC}"
     echo -e "    Status anzeigen:    ${GREEN}${APPNAME} --show${NC}"
-    echo -e "    Config-Datei:       ${GREEN}${CONFIG_NAME}${NC} im Workspace-Root"
+    echo -e "    Config anlegen:     ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
     echo
 }
 
-# Gibt eine Beispiel-Config auf stderr aus.
+# Gibt eine gueltige, sourcebare Beispiel-Config auf stdout aus — direkt umleitbar:
+#   repo-status.sh --example > .repo-status.conf.sh
+#
+# Erkennt die vorhandenen Git-Repos automatisch: Root (falls Git-Repo) und
+# Sub-Repos bis zwei Ebenen tief werden als REPOS-Eintraege vorgeschlagen;
+# ISSUES_REPO wird aus dem origin-Remote (GitHub) vorbelegt, falls vorhanden.
+# Ohne gefundene Git-Repos faellt es auf eine editierbare Vorlage zurueck.
 printConfigExample() {
-    cat >&2 <<EOF
+    local root_name
+    root_name="$(basename "$(pwd)")"
 
-Beispiel ${CONFIG_NAME} (wird gesourced):
+    # ISSUES_REPO aus dem origin-Remote ableiten (nur GitHub: owner/repo)
+    local origin issues_repo="" remote_path
+    origin="$(git remote get-url origin 2>/dev/null || true)"
+    case "${origin}" in
+        *github.com[:/]*)
+            remote_path="${origin##*github.com}"   # ":owner/repo.git" | "/owner/repo.git"
+            remote_path="${remote_path#[:/]}"       # fuehrendes : oder / entfernen
+            issues_repo="${remote_path%.git}"       # .git-Endung entfernen
+            ;;
+    esac
 
-    # Optional: GitHub-Repo fuer die Issue-Sektion (blocker/high-priority)
-    ISSUES_REPO="MikeMitterer/mein-repo"
+    # Git-Repos einsammeln: Root + Sub-Repos (bis 2 Ebenen tief), Symlink-Libs
+    # und ueblichen Noise ausschliessen. find folgt Symlinks nicht (.libs bleibt aussen vor).
+    local repos=()
+    if [[ -e .git ]]; then
+        repos+=(".:${root_name} (Root)")
+    fi
 
-    # Workspace-Repos: "<pfad>:<anzeigename>"
-    REPOS=(
-        ".:MeinProjekt (Root)"
-        "apps/backend:apps/backend"
-    )
+    local gitdir repo_path
+    while IFS= read -r gitdir; do
+        repo_path="${gitdir#./}"
+        repo_path="${repo_path%/.git}"
+        [[ "${repo_path}" == "." || -z "${repo_path}" ]] && continue
+        repos+=("${repo_path}:${repo_path}")
+    done < <(find . -maxdepth 3 -name .git \
+                  -not -path './.git' \
+                  -not -path '*/.libs/*' \
+                  -not -path '*/node_modules/*' \
+                  -not -path '*/.venv/*' 2>/dev/null | sort)
 
+    cat <<EOF
+#!/usr/bin/env bash
+# Config fuer repo-status.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
+# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# shellcheck disable=SC2034  # von repo-status.sh gesourct
+
+# Optional: GitHub-Repo fuer die Issue-Sektion (blocker/high-priority)
+ISSUES_REPO="${issues_repo}"
+
+# Workspace-Repos: "<pfad>:<anzeigename>" (Split am ersten ':')
+REPOS=(
 EOF
+
+    if [[ ${#repos[@]} -gt 0 ]]; then
+        printf '    "%s"\n' "${repos[@]}"
+    else
+        printf '    ".:%s (Root)"\n' "${root_name}"
+        printf '    # "apps/backend:apps/backend"\n'
+    fi
+
+    echo ')'
 }
 
 # Sourct die Config-Datei und validiert das REPOS-Array.
@@ -306,6 +359,10 @@ while [[ $# -gt 0 ]]; do
             config_file="$2"
             shift
             ;;
+        -e|--example)
+            printConfigExample
+            exit 0
+            ;;
         -h|--help)
             usage
             exit 0
@@ -325,8 +382,10 @@ if [[ "${action}" != "show" ]]; then
 fi
 
 if ! loadConfig "${config_file}"; then
-    echo -e "${RED}Fehler:${NC} Config '${config_file}' nicht gefunden oder ohne Repo-Eintraege." >&2
-    printConfigExample
+    {
+        echo -e "${RED}Fehler:${NC} Config '${config_file}' nicht gefunden oder ohne Repo-Eintraege."
+        echo -e "Vorlage anlegen: ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
+    } >&2
     exit 1
 fi
 

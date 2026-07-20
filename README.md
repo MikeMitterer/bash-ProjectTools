@@ -26,6 +26,10 @@ aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh` (di
 Die `.sh`-Endung sorgt fürs IDE-Syntaxhighlighting. Override via `--config <datei>`.
 Die Config gehört ins jeweilige Projekt-Repo.
 
+Eine Starter-Config erzeugt `repo-status.sh --example > .repo-status.conf.sh`: das
+Beispiel erkennt die vorhandenen Git-Repos automatisch (Root + Sub-Repos bis zwei
+Ebenen tief) und belegt `ISSUES_REPO` aus dem `origin`-Remote vor.
+
 ### Format `.repo-status.conf.sh`
 
 ```bash
