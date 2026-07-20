@@ -3,11 +3,12 @@
 # repo-status.sh — Git-Status aller Workspace-Repos als formatierte Tabelle
 #
 # Liest die Repo-Liste aus einer projektspezifischen Config-Datei im aktuellen
-# Verzeichnis. Der Config-Name wird aus dem Script-Namen abgeleitet
-# (repo-status.sh -> .repo-status.conf.sh; .sh-Endung fuer IDE-Highlighting).
-# Optional zeigt das Script offene
-# GitHub-Issues (blocker / high-priority) des in ISSUES_REPO konfigurierten
-# GitHub-Repos an.
+# Verzeichnis. Die Config ist ein sourcebares Bash-Snippet (setzt ISSUES_REPO
+# und das REPOS-Array) — kein Custom-Parser. Der Name wird aus dem Script-Namen
+# abgeleitet (repo-status.sh -> .repo-status.conf.sh; .sh-Endung fuer
+# IDE-Highlighting, .conf wird ebenfalls akzeptiert). Optional zeigt das Script
+# offene GitHub-Issues (blocker / high-priority) des in ISSUES_REPO
+# konfigurierten GitHub-Repos an.
 #
 # Verwendung:
 #   repo-status.sh [--show] [--config <datei>] [--help]
@@ -30,12 +31,23 @@ if [[ "${__TOOLS_LIB__:=""}"   == "" ]]; then . "${BASH_LIBS}/tools.lib.sh";   f
 
 APPNAME="$(basename "$0")"
 readonly APPNAME
-CONFIG_NAME=".$(basename "$0" .sh).conf.sh"
+APPNAME_WITHOUT_EXTENSION="${APPNAME%%.*}"
+readonly APPNAME_WITHOUT_EXTENSION
+
+# Config-Name aus Script-Namen ableiten (BashTools-Konvention). Beide Endungen
+# werden unterstuetzt; Default ist .conf.sh (IDE-Highlighting), ein vorhandenes
+# .conf gewinnt.
+CONFIG_BASE="./.${APPNAME_WITHOUT_EXTENSION}.conf"
+if [[ -f "${CONFIG_BASE}" ]]; then
+    CONFIG_NAME="${CONFIG_BASE}"
+else
+    CONFIG_NAME="${CONFIG_BASE}.sh"
+fi
 readonly CONFIG_NAME
 readonly COL_WIDTH_NAME=28
 readonly COL_WIDTH_LOCAL=20
 
-# Wird von loadConfig() befuellt
+# Defaults — von der gesourcten Config ueberschrieben
 ISSUES_REPO=""
 REPOS=()
 
@@ -60,52 +72,37 @@ usage() {
 printConfigExample() {
     cat >&2 <<EOF
 
-Beispiel ${CONFIG_NAME}:
+Beispiel ${CONFIG_NAME} (wird gesourced):
 
     # Optional: GitHub-Repo fuer die Issue-Sektion (blocker/high-priority)
-    ISSUES_REPO=MikeMitterer/decmap_project
+    ISSUES_REPO="MikeMitterer/mein-repo"
 
-    # Repos: <pfad>:<anzeigename>
-    .:MeinProjekt (Root)
-    apps/backend:apps/backend
+    # Workspace-Repos: "<pfad>:<anzeigename>"
+    REPOS=(
+        ".:MeinProjekt (Root)"
+        "apps/backend:apps/backend"
+    )
 
 EOF
 }
 
-# Laedt die Config-Datei und befuellt ISSUES_REPO und REPOS.
+# Sourct die Config-Datei und validiert das REPOS-Array.
 #
-# Regeln: '#'-Zeilen und Leerzeilen werden ignoriert; KEY=VALUE-Zeilen sind
-# Settings (unbekannte Keys -> Warnung); alle anderen Zeilen sind
-# Repo-Eintraege "pfad:anzeigename".
+# Die Config ist ein sourcebares Bash-Snippet, das ISSUES_REPO (optional) und
+# das REPOS-Array ("<pfad>:<anzeigename>") setzt — kein Custom-Parser noetig.
 #
 # Params:
 #   $1 - Pfad zur Config-Datei
 #
 # Returns:
-#   0 bei Erfolg, 1 wenn Datei fehlt oder keine Repo-Eintraege enthaelt
+#   0 bei Erfolg, 1 wenn Datei fehlt oder REPOS leer/ungesetzt ist
 loadConfig() {
     local config_file="$1"
 
-    if [[ ! -f "${config_file}" ]]; then
-        return 1
-    fi
+    [[ -f "${config_file}" ]] || return 1
 
-    local line
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        [[ "${line}" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line//[[:space:]]/}" ]] && continue
-
-        if [[ "${line}" =~ ^[A-Z_]+= ]]; then
-            local key="${line%%=*}"
-            local value="${line#*=}"
-            case "${key}" in
-                ISSUES_REPO) ISSUES_REPO="${value}" ;;
-                *) echo -e "${YELLOW}Warnung: Unbekannter Config-Key '${key}' wird ignoriert${NC}" >&2 ;;
-            esac
-        else
-            REPOS+=("${line}")
-        fi
-    done < "${config_file}"
+    # shellcheck source=/dev/null
+    . "${config_file}"
 
     [[ ${#REPOS[@]} -gt 0 ]]
 }

@@ -19,32 +19,37 @@ Teil des DevBash-Ökosystems:
 ## Konfiguration
 
 Jedes Script liest seine projektspezifische Config aus dem CWD. Der Name wird
-aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh`.
-Die `.sh`-Endung ist bewusst gesetzt, damit IDEs das shell-artige `KEY=VALUE`-Format
-syntaktisch highlighten. Override via `--config <datei>`. Die Config gehört ins
-jeweilige Projekt-Repo.
+aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh` (die
+`.conf`-Endung ohne `.sh` wird ebenfalls akzeptiert). Die Config ist ein
+**sourcebares Bash-Snippet** (BashTools-Konvention) — das Script sourct sie mit
+`. "${CONFIG_FILE}"` und validiert danach die Pflichtwerte, statt selbst zu parsen.
+Die `.sh`-Endung sorgt fürs IDE-Syntaxhighlighting. Override via `--config <datei>`.
+Die Config gehört ins jeweilige Projekt-Repo.
 
 ### Format `.repo-status.conf.sh`
 
+```bash
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # von repo-status.sh gesourct
+
+# Optional: GitHub-Repo für die Issue-Sektion (blocker/high-priority)
+ISSUES_REPO="MikeMitterer/mein-issue-repo"
+
+# Workspace-Repos: "<pfad>:<anzeigename>" (Split am ersten ':')
+REPOS=(
+    ".:MeinProjekt (Root)"
+    "apps/backend:apps/backend"
+)
 ```
-# Kommentar (ganze Zeile) und Leerzeilen werden ignoriert
 
-# Settings: KEY=VALUE (aktuell nur ISSUES_REPO; unbekannte Keys -> Warnung)
-ISSUES_REPO=MikeMitterer/mein-issue-repo
-
-# Repo-Einträge: <pfad>:<anzeigename> (Split am ersten ':')
-.:MeinProjekt (Root)
-apps/backend:apps/backend
-```
-
-- `#`-Zeilen und Leerzeilen: ignoriert
-- Zeilen der Form `KEY=VALUE`: Settings — derzeit nur `ISSUES_REPO` (GitHub-Repo
-  für die optionale Blocker/high-priority-Issue-Sektion); unbekannte Keys werden
-  mit Warnung übersprungen
-- Alle anderen Zeilen: Repo-Einträge `pfad:anzeigename`, aufgeteilt am **ersten**
-  `:` (der Anzeigename darf `:` enthalten, der Pfad nicht)
-- Fehlt die Datei oder enthält sie keinen Repo-Eintrag → Fehlermeldung mit
+- `ISSUES_REPO` (optional): GitHub-Repo für die Blocker/high-priority-Issue-Sektion;
+  leer/ungesetzt → keine Issue-Sektion
+- `REPOS` (Pflicht): Bash-Array aus `"<pfad>:<anzeigename>"`-Einträgen, aufgeteilt
+  am **ersten** `:` (der Anzeigename darf `:` enthalten, der Pfad nicht)
+- Fehlt die Datei oder ist `REPOS` leer/ungesetzt → Fehlermeldung mit
   Beispiel-Config, Exit 1
+- Die Datei wird gesourced: nur Variablen-/Array-Zuweisungen hineinschreiben,
+  keine Seiteneffekte
 
 ## Tools
 
