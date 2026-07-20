@@ -19,10 +19,12 @@ Teil des DevBash-Ökosystems:
 ## Konfiguration
 
 Jedes Script liest seine projektspezifische Config aus dem CWD. Der Name wird
-aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf`.
-Override via `--config <datei>`. Die Config gehört ins jeweilige Projekt-Repo.
+aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh`.
+Die `.sh`-Endung ist bewusst gesetzt, damit IDEs das shell-artige `KEY=VALUE`-Format
+syntaktisch highlighten. Override via `--config <datei>`. Die Config gehört ins
+jeweilige Projekt-Repo.
 
-### Format `.repo-status.conf`
+### Format `.repo-status.conf.sh`
 
 ```
 # Kommentar (ganze Zeile) und Leerzeilen werden ignoriert
@@ -48,4 +50,4 @@ apps/backend:apps/backend
 
 | Script | Zweck | Config |
 |---|---|---|
-| `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf` |
+| `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |

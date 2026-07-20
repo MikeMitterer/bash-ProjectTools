@@ -4,7 +4,8 @@
 #
 # Liest die Repo-Liste aus einer projektspezifischen Config-Datei im aktuellen
 # Verzeichnis. Der Config-Name wird aus dem Script-Namen abgeleitet
-# (repo-status.sh -> .repo-status.conf). Optional zeigt das Script offene
+# (repo-status.sh -> .repo-status.conf.sh; .sh-Endung fuer IDE-Highlighting).
+# Optional zeigt das Script offene
 # GitHub-Issues (blocker / high-priority) des in ISSUES_REPO konfigurierten
 # GitHub-Repos an.
 #
@@ -14,7 +15,7 @@
 #
 # Optionen:
 #   -s | --show     Git-Status aller Workspace-Repos als Tabelle anzeigen
-#   -c | --config   Alternative Config-Datei (Default: ./.repo-status.conf)
+#   -c | --config   Alternative Config-Datei (Default: ./.repo-status.conf.sh)
 #   -h | --help     Diese Hilfe anzeigen
 #------------------------------------------------------------------------------
 
@@ -29,7 +30,7 @@ if [[ "${__TOOLS_LIB__:=""}"   == "" ]]; then . "${BASH_LIBS}/tools.lib.sh";   f
 
 APPNAME="$(basename "$0")"
 readonly APPNAME
-CONFIG_NAME=".$(basename "$0" .sh).conf"
+CONFIG_NAME=".$(basename "$0" .sh).conf.sh"
 readonly CONFIG_NAME
 readonly COL_WIDTH_NAME=28
 readonly COL_WIDTH_LOCAL=20

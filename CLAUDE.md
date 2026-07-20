@@ -24,5 +24,5 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
 
 ## Tools
 
-- `src/bash/repo-status.sh` — Git-Status aller Workspace-Repos (Config: `.repo-status.conf`,
+- `src/bash/repo-status.sh` — Git-Status aller Workspace-Repos (Config: `.repo-status.conf.sh`,
   optional `ISSUES_REPO` für die GitHub-Issue-Sektion)
