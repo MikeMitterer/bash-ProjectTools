@@ -120,6 +120,7 @@ printConfigExample() {
 #!/usr/bin/env bash
 # Config fuer repo-status.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
 # .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von repo-status.sh gesourct
 
 # Optional: GitHub-Repo fuer die Issue-Sektion (blocker/high-priority)
