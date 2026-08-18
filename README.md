@@ -65,3 +65,26 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | Script | Zweck | Config |
 |---|---|---|
 | `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |
+| `src/bash/npm-login.sh` | Anmeldung am passenden npm-Registry sicherstellen — meldet an, falls nötig | — |
+
+Nicht jedes Script gehört in `make status`. `npm-login.sh` wird dort
+vorgeschaltet, wo eine Anmeldung gebraucht wird — veröffentlichen, private
+Abhängigkeiten installieren, CI:
+
+```makefile
+publish: ##R Paket veröffentlichen  [CONFIRM=yes]
+	@test "$(CONFIRM)" = "yes" || \
+	  (echo "${ORANGE}Sicherheitscheck: make $@ CONFIRM=yes${NC}" && exit 1)
+	@bash $(PROJECT_TOOLS)/bash/npm-login.sh --ensure
+	@npm publish
+```
+
+Der Grund für dieses Script ist eine Falle, die man genau einmal selbst sucht:
+Ist niemand angemeldet, antwortet die Registry bei einem **privaten** Paket mit
+`404 Not Found` statt `401` — sie verrät dessen Existenz nicht. Die Meldung
+zeigt dann auf den Paketnamen, und man prüft Scope, Schreibweise und
+`publishConfig`, während bloß der Token abgelaufen ist.
+
+`--ensure` meldet an, falls nötig; `--status` berichtet nur und taugt für CI,
+wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
+`publishConfig.registry` schlägt die Scope-Einstellung, diese die globale.
