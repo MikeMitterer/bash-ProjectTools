@@ -30,6 +30,47 @@ Eine Starter-Config erzeugt `repo-status.sh --example > .repo-status.conf.sh`: d
 Beispiel erkennt die vorhandenen Git-Repos automatisch (Root + Sub-Repos bis zwei
 Ebenen tief) und belegt `ISSUES_REPO` aus dem `origin`-Remote vor.
 
+### `pkg-link.sh` — Paket lokal oder aus der Registry
+
+Wird an einem geteilten Paket und einer App gleichzeitig gearbeitet, muss die App
+das lokale Repo sehen — sonst laesst sich vor dem Veroeffentlichen nichts pruefen.
+Danach muss sie zurueck auf die Registry-Fassung. `pkg-link.sh` schaltet zwischen
+beidem um, fuer beliebige Apps und Pakete.
+
+```bash
+pkg-link.sh --status                          # woher kommt gerade welches Paket?
+pkg-link.sh --link @mmit/ux-foundation        # auf das lokale Repo
+pkg-link.sh --unlink --all                    # alles zurueck auf die Registry
+pkg-link.sh --example > .pkg-link.conf.sh     # Starter-Config (erkennt Pakete)
+```
+
+Beim Umschalten von Hand ist genau das schiefgegangen, was das Script verhindert:
+Ein `mv` folgte einem noch bestehenden Symlink und legte die Sicherung **im
+fremden Repo** ab; ein interaktives `rm -i`-Alias liess den Rueckbau still
+scheitern. Deshalb laufen alle Datei-Operationen ueber `removeSymlink()` und
+`movePathSafely()` — sie pruefen vorher, dass das Ziel in keiner Form belegt ist
+und sein Elternverzeichnis kein Symlink. `tests/bash/pkg-link.test.sh` stellt den
+Unfall nach; mit dem naiven `mv` faellt der Test.
+
+Nach jedem Umschalten wird `node_modules/.vite` geleert — sonst serviert der
+Dev-Server die vorab optimierte alte Fassung weiter, und der Fehler sieht wie ein
+fehlender Export aus.
+
+#### Format `.pkg-link.conf.sh`
+
+```bash
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # von pkg-link.sh gesourct
+
+# Verzeichnis mit package.json und node_modules, relativ zum CWD.
+PACKAGE_ROOT="dashboard"
+
+# Umschaltbare Pakete: "<paketname>=<pfad zum lokalen Repo>"
+PACKAGES=(
+    "@mmit/ux-foundation=${DEV_LOCAL}/DevWeb/Production/ux-foundation"
+)
+```
+
 ### Format `.repo-status.conf.sh`
 
 ```bash

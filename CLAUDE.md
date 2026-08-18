@@ -26,3 +26,8 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
 
 - `src/bash/repo-status.sh` — Git-Status aller Workspace-Repos (Config: `.repo-status.conf.sh`,
   optional `ISSUES_REPO` für die GitHub-Issue-Sektion)
+- `src/bash/pkg-link.sh` — npm-Paket zwischen lokalem Repo und Registry umschalten
+  (Config: `.pkg-link.conf.sh` mit `PACKAGE_ROOT` und `PACKAGES`). Alle
+  Datei-Operationen laufen über `removeSymlink()`/`movePathSafely()`: Ein `mv` auf
+  ein Ziel, das noch ein Symlink ist, legt die Sicherung im fremden Repo ab —
+  genau so ist es einmal passiert. Tests: `tests/bash/pkg-link.test.sh --run`
