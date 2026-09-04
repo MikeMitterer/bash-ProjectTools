@@ -136,7 +136,7 @@ Es räumt drei Fallen ab, die man sonst je einmal selbst sucht:
 dort, wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
 `publishConfig.registry` schlägt die Scope-Einstellung, diese die globale.
 
-### Fünf Grenzen, die der Vertrag ausdrücklich zieht
+### Die Grenzen, die der Vertrag ausdrücklich zieht
 
 Sie stehen hier, weil jede von ihnen einmal eine echte Fehlfunktion war:
 
@@ -145,11 +145,12 @@ Sie stehen hier, weil jede von ihnen einmal eine echte Fehlfunktion war:
 | **stdout des Uploads bleibt unangetastet** | npm bricht seine OTP-Abfrage ab, sobald `stdin` **oder** `stdout` kein TTY ist (npm 11, `lib/utils/auth.js:10`). Ein Einfangen der Ausgabe schaltet die Zwei-Faktor-Anmeldung stumm ab — und eine `tee`-Pipeline genauso, obwohl die Ausgabe dabei sichtbar bleibt. Eingefangen wird nur stderr; dort stehen npms Fehlerzeilen ohnehin. |
 | **Wiederholt wird nur bei exaktem `E409`** | Die blosse Zeichenfolge `409` steht auch in einem Paketnamen oder einer URL. Einen eigenen Prozess-Exit-Code je HTTP-Status gibt es nicht; npm endet bei jedem HTTP-Fehler mit `1`. |
 | **„nicht vorhanden" ≠ „nicht feststellbar"** | Drei Dinge sind **kein** sicheres „gibt es nicht": ein Ausfall der Abfrage, eine unlesbare Antwort und ein `E404`. Letzteres heisst bei einem privaten Paket „gibt es nicht **oder** du darfst nicht" — dieselbe Verschleierung wie oben. In allen drei Fällen wird weder „ist noch frei" noch „liegt nicht oben" behauptet, und `--status` wird **nicht grün**. |
-| **Ein Ziel für alle Schritte** | Ein `--registry` unter den durchgereichten Argumenten verschöbe sonst nur den Upload, während Anmeldung, Vor- und Nachprüfung die alte Registry befragen — die Auskunft gälte dann einem anderen Paket. Es wird deshalb übernommen. Was sich nicht nachbilden lässt, wird abgelehnt statt still danebenzugreifen: Scope-Registries (`--@scope:registry=…`) und Workspaces (`-w`, `--workspace…`, weil dann ein anderes Paket veröffentlicht würde als das geprüfte). |
+| **Ein Ziel für alle Schritte** | Ein `--registry` unter den durchgereichten Argumenten verschöbe sonst nur den Upload, während Anmeldung, Vor- und Nachprüfung die alte Registry befragen — die Auskunft gälte dann einem anderen Paket. Es wird deshalb übernommen. |
+| **Durchgereicht wird eine Positivliste** | `--otp`, `--tag`, `--access`, `--registry`, `--provenance`/`--no-provenance` — beide Schreibweisen. Alles andere wird abgelehnt. Eine Sperrliste wäre bei jedem npm-Update potenziell unvollständig, und was durchrutscht, fällt mit einer **falschen Erfolgsmeldung** aus: `npm publish ./anderes-paket` lud ein anderes Paket hoch als das geprüfte, `--dry-run` gar keines — beide Male meldete der Wrapper das geprüfte als veröffentlicht. Was hier nicht steht, gehört in einen direkten `npm publish`-Aufruf, wo niemand etwas Falsches verspricht. |
 | **Keine Wiederholung bei Lifecycle-Scripten** | Jeder neue Versuch startet `npm publish` komplett neu, samt `prepublishOnly`, `prepack`, `prepare`, `postpack`, `publish` und `postpublish`. Dass die Registry eine Version nicht überschreibt, macht diese **lokalen** Hooks nicht idempotent. Erklärt die `package.json` einen davon, bricht das Script nach dem ersten Versuch ab und nennt ihn. |
 
-Alles nach `--publish` geht unverändert an `npm publish` weiter — deshalb das
-`$(NPM_ARGS)` oben:
+Was die Positivliste erlaubt, geht unverändert an `npm publish` weiter —
+deshalb das `$(NPM_ARGS)` oben:
 
 ```bash
 make publish CONFIRM=yes NPM_ARGS=--otp=123456
@@ -157,7 +158,7 @@ make publish CONFIRM=yes NPM_ARGS=--otp=123456
 
 Geprüft wird das alles von `tests/bash/npm-publish.test.sh --run`: Das Script
 läuft dort als Prozess über seinen öffentlichen Aufruf gegen eine
-`npm`-Attrappe. Jede der fünf Grenzen hat ihren eigenen Fall, und jeder wurde
+`npm`-Attrappe. Jede Grenze hat ihren eigenen Fall, und jeder wurde
 gegen einen Mutanten geprüft, der die Korrektur zurückdreht.
 
 Die TTY-Zusage läuft dabei unter einem **echten PTY** (`script -q /dev/null`,
@@ -165,7 +166,9 @@ mit Rückfall auf die GNU-Form). Das ist kein Selbstzweck: Im umgeleiteten
 Testharness sieht die Attrappe grundsätzlich kein TTY, egal was das Script
 tut — die schwächere Frage „kommt npms Ausgabe beim Aufrufer an?" beantwortet
 auch eine `tee`-Pipeline mit ja, während npm trotzdem kein TTY sähe. Genau
-dieser Mutant fällt unter dem PTY auf und nur dort.
+dieser Mutant fällt unter dem PTY auf und nur dort. Geprüft werden dabei
+**beide** Deskriptoren (`-t 0 && -t 1`): npm sieht auch dann kein TTY, wenn nur
+stdin abgeklemmt ist.
 
 Pythons `pty.spawn` wäre der naheliegende Weg gewesen und liefert auch ein
 korrektes PTY — kehrt auf macOS aber nach dem Kindprozess nicht aus seiner
