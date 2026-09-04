@@ -19,7 +19,7 @@
 #    nicht verarbeitet") passt fast nie. Hier wird stattdessen nachgesehen, ob
 #    es trotz des Fehlers oben liegt, und andernfalls erneut versucht.
 #
-# **Vier Eigenschaften, die beim Bauen Blut gekostet haben** — jede einzelne
+# **Die Eigenschaften, die beim Bauen Blut gekostet haben** — jede einzelne
 # war eine echte Fehlfunktion, keine Vorsichtsmassnahme:
 #
 # - **stdout des Uploads bleibt unangetastet.** `npm` bricht seine OTP-Abfrage
@@ -42,9 +42,13 @@
 # - **Ein Ziel fuer alle Schritte.** Ein `--registry` unter den
 #   weitergereichten Argumenten aendert sonst nur den Upload, waehrend
 #   Anmeldung, Vor- und Nachpruefung gegen die alte Registry laufen und
-#   Fragen ueber ein Paket beantworten, das gar nicht gemeint ist. Argumente,
-#   deren Zielwirkung dieses Script nicht nachbilden kann — Scope-Registries
-#   und Workspaces —, werden abgelehnt statt still danebenzugreifen.
+#   Fragen ueber ein Paket beantworten, das gar nicht gemeint ist.
+# - **Weitergereicht wird nur eine Positivliste.** Alles andere wird
+#   abgelehnt, statt still danebenzugreifen. Eine Sperrliste ist bei jedem
+#   npm-Update potenziell unvollstaendig, und was durchrutscht, faellt mit
+#   einer **falschen Erfolgsmeldung** aus: `npm publish ./anderes-paket` lud
+#   ein anderes Paket hoch als das gepruefte, `--dry-run` gar keines — beide
+#   Male meldete der Wrapper das gepruefte als veroeffentlicht.
 # - **Wiederholt wird nur ohne Lifecycle-Scripte.** Jeder neue Versuch startet
 #   `npm publish` komplett neu, samt `prepublishOnly`, `prepack`, `prepare`,
 #   `postpack`, `publish` und `postpublish`. Dass die Registry eine Version
@@ -63,8 +67,8 @@
 #   npm-publish.sh --publish [weitere npm-Argumente]
 #   npm-publish.sh [--ensure] [--status] [--help]
 #
-# Alles nach `--publish` geht unveraendert an `npm publish` weiter, etwa
-# `--otp=123456` oder `--tag next`.
+# Hinter `--publish` sind nur die Argumente der Positivliste erlaubt (siehe
+# `rejectUnsupportedArgs`), etwa `--otp=123456` oder `--tag next`.
 #
 # Optionen:
 #   -p | --publish  Anmelden, pruefen, hochladen, nachsehen
@@ -98,6 +102,11 @@ readonly RETRY_DELAYS=(5 15)
 
 # Lifecycle-Scripte, die ein zweiter `npm publish` erneut ausfuehren wuerde.
 readonly LIFECYCLE_HOOKS=(prepublishOnly prepack prepare postpack publish postpublish)
+
+# Was hinter `--publish` an `npm publish` weitergereicht werden darf. Die
+# Begruendung fuer die Positivliste steht bei `rejectUnsupportedArgs`.
+readonly PASSTHROUGH_VALUE_OPTIONS=(--otp --tag --access --registry)
+readonly PASSTHROUGH_FLAGS=(--provenance --no-provenance)
 
 # Auffangdatei fuer stderr des Uploads; siehe Kopf, warum nicht stdout.
 ERR_FILE=""
@@ -245,49 +254,108 @@ registryOverride() {
     echo "${found}"
 }
 
-# Lehnt Argumente ab, deren Wirkung dieses Script nicht abbilden kann.
+# Prueft, ob ein Wort in einer Liste steht.
 #
-# Nicht jedes npm-Argument ist harmlos durchzureichen: Zwei Klassen
-# verschieben das **Ziel** des Uploads, waehrend Anmeldung, Vor- und
-# Nachpruefung weiter auf das alte Ziel schauen wuerden. Ein `--registry`
-# faengt `registryOverride` ab; alles Uebrige aus diesen Klassen wird
-# abgelehnt, statt still danebenzugreifen:
+# Params:
+#   $1 - gesuchtes Wort
+#   $@ - die Liste
 #
-# - **Scope-Registries** (`--@scope:registry=…`) — npm loest sie je Paketname
-#   auf; welches Ziel am Ende gilt, kann dieses Script nicht nachbilden.
-# - **Workspaces** (`-w`, `--workspace…`) — dann veroeffentlicht npm ein
-#   anderes Paket als das der `package.json` im aktuellen Verzeichnis, und
-#   Name wie Version dieser Pruefung waeren schlicht die falschen.
+# Returns:
+#   0 bei Treffer, sonst 1
+containsWord() {
+    local needle="$1" item=""
+    shift
+
+    for item in "$@"; do
+        [[ "${item}" == "${needle}" ]] && return 0
+    done
+
+    return 1
+}
+
+# Laesst nur Argumente durch, deren Wirkung dieses Script abbilden kann.
+#
+# **Eine Positivliste, keine Sperrliste.** Der Unterschied ist der ganze Punkt:
+# Eine Sperrliste ist bei jedem npm-Update potenziell unvollstaendig, und was
+# durchrutscht, faellt still aus — mit einer Erfolgsmeldung ueber ein Paket,
+# das gar nicht hochgeladen wurde. Zwei Beispiele, die genau das taten:
+#
+# - **Ein positionaler `<package-spec>`** (`npm publish ./anderes-paket`).
+#   Geprueft wurde die package.json im aktuellen Verzeichnis, hochgeladen ein
+#   anderes Paket — und gemeldet wurde der Erfolg des geprueften.
+# - **`--dry-run`.** npm endet mit 0, ohne etwas zu veroeffentlichen; der
+#   Wrapper meldete trotzdem „veroeffentlicht".
+#
+# Durchgelassen wird nur, was Ziel und Ergebnis unangetastet laesst oder — wie
+# `--registry` — hier ausdruecklich mitgefuehrt wird. Alles andere gehoert in
+# einen direkten `npm publish`-Aufruf, wo niemand etwas Falsches verspricht.
 #
 # Params:
 #   $@ - die weitergereichten Argumente
 #
 # Returns:
-#   0 wenn alle Argumente abbildbar sind, sonst 1 mit Meldung
-rejectUnmodelledArgs() {
-    local arg=""
+#   0 wenn alle Argumente unterstuetzt sind, sonst 1 mit Meldung
+rejectUnsupportedArgs() {
+    local arg="" expect_value="no"
 
     for arg in "$@"; do
+        if [[ "${expect_value}" == "yes" ]]; then
+            expect_value="no"
+            continue
+        fi
+
+        if [[ "${arg}" == *=* ]] \
+            && containsWord "${arg%%=*}" "${PASSTHROUGH_VALUE_OPTIONS[@]}"; then
+            continue
+        fi
+
+        if containsWord "${arg}" "${PASSTHROUGH_VALUE_OPTIONS[@]}"; then
+            expect_value="yes"
+            continue
+        fi
+
+        containsWord "${arg}" "${PASSTHROUGH_FLAGS[@]}" && continue
+
+        echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} wird nicht durchgereicht." >&2
+        echo -e "      Dieses Script laesst nur durch, was Ziel und Ergebnis" \
+                "unveraendert laesst:" >&2
+        echo -e "      ${GREEN}${PASSTHROUGH_VALUE_OPTIONS[*]}${NC}" \
+                "${GREEN}${PASSTHROUGH_FLAGS[*]}${NC}" >&2
+
+        # Zusaetzliche Hinweise fuer die drei Faelle, die tatsaechlich jemand
+        # tippt. **Nur Text** — die Ablehnung selbst hat die Positivliste
+        # oben schon entschieden. Diese Aufzaehlung darf also veralten, ohne
+        # dass etwas durchrutscht; sie macht die Meldung nur brauchbarer.
         case "${arg}" in
-            --@*:registry|--@*:registry=*)
-                echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} wird nicht durchgereicht:" \
-                        "Welche Registry am Ende gilt," >&2
-                echo -e "      kann dieses Script nicht nachbilden — Vor- und" \
-                        "Nachpruefung liefen ins Leere." >&2
-                echo -e "      Nimm ${GREEN}--registry=…${NC} oder setze es in der" \
-                        "npm-Konfiguration." >&2
-                return 1
+            --dry-run)
+                echo -e "      ${YELLOW}--dry-run${NC} veroeffentlicht nichts, endet aber" \
+                        "mit 0 — der Wrapper" >&2
+                echo -e "      wuerde faelschlich Erfolg melden. Nimm" \
+                        "${GREEN}npm publish --dry-run${NC} direkt." >&2
                 ;;
             -w|--workspace|--workspace=*|--workspaces|--workspaces=*)
-                echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} wird nicht durchgereicht:" \
-                        "Dann veroeffentlicht npm ein" >&2
-                echo -e "      anderes Paket als das hier gepruefte. Ruf das Script im" \
-                        "Verzeichnis des" >&2
-                echo -e "      gewuenschten Pakets auf." >&2
-                return 1
+                echo -e "      Mit Workspaces veroeffentlicht npm ein ${YELLOW}anderes Paket${NC}" \
+                        "als das hier" >&2
+                echo -e "      Gepruefte. Ruf das Script im Verzeichnis des gewuenschten" \
+                        "Pakets auf." >&2
+                ;;
+            -*) ;;
+            *)
+                echo -e "      Sieht nach einem ${YELLOW}<package-spec>${NC} aus: Dann laedt" \
+                        "npm ein ${YELLOW}anderes Paket${NC}" >&2
+                echo -e "      hoch als das hier Gepruefte. Ruf das Script im Verzeichnis" \
+                        "des gewuenschten" >&2
+                echo -e "      Pakets auf." >&2
                 ;;
         esac
+
+        return 1
     done
+
+    if [[ "${expect_value}" == "yes" ]]; then
+        echo -e "  ${RED}✗${NC} Dem letzten Argument fehlt sein Wert." >&2
+        return 1
+    fi
 
     return 0
 }
@@ -524,7 +592,7 @@ run() {
     local registry name version state override
     local -i rc=0
 
-    if ! rejectUnmodelledArgs "$@"; then
+    if ! rejectUnsupportedArgs "$@"; then
         echo
         return 1
     fi

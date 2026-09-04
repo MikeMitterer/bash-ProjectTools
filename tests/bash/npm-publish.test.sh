@@ -134,7 +134,8 @@ assertNotContains() {
 #
 #   <unterbefehl> <alle argumente>   fuer Zaehlung und Argumentpruefung
 #   REGISTRY[<unterbefehl>]=<url>    welches Ziel dieser Schritt benutzte
-#   PUBLISH_STDOUT_TTY=<yes|no>      nur bei `publish`: sah npm ein TTY?
+#   PUBLISH_STDIO_TTY=<yes|no>       nur bei `publish`: sah npm stdin UND
+#                                    stdout als TTY?
 #
 # Ihre Antworten steuern zwei Umgebungsvariablen:
 #
@@ -198,13 +199,16 @@ case "\${sub}" in
         esac
         ;;
     publish)
-        # Die Zusage, an der die OTP-Abfrage haengt. Sie ist nur unter einem
-        # echten PTY beobachtbar — im umgeleiteten Harness steht hier immer
-        # \`no\`, egal was das Script tut.
-        if [[ -t 1 ]]; then
-            echo "PUBLISH_STDOUT_TTY=yes" >> "\${STUB_LOG}"
+        # Die Zusage, an der die OTP-Abfrage haengt. npm prueft **stdin und
+        # stdout** (\`lib/utils/auth.js:10\`), deshalb beide — ein \`< /dev/null\`
+        # am Upload liesse stdout heil und die Abfrage trotzdem sterben.
+        # Beobachtbar ist das nur unter einem echten PTY; im umgeleiteten
+        # Harness steht hier immer \`no\`, egal was das Script tut.
+        if [[ -t 0 && -t 1 ]]; then
+            echo "PUBLISH_STDIO_TTY=yes" >> "\${STUB_LOG}"
         else
-            echo "PUBLISH_STDOUT_TTY=no" >> "\${STUB_LOG}"
+            echo "PUBLISH_STDIO_TTY=no (stdin=\$([ -t 0 ] && echo tty || echo nein)," \
+                 "stdout=\$([ -t 1 ] && echo tty || echo nein))" >> "\${STUB_LOG}"
         fi
         echo "${STDOUT_MARKER}"
         if [[ -z "\${STUB_PUBLISH_CODE:-}" ]]; then
@@ -405,8 +409,8 @@ testPublishLaeuftUnterEchtemTty() {
         return
     fi
 
-    assertContains "${fixture}/calls.txt" "PUBLISH_STDOUT_TTY=yes" \
-        "TTY: npm sieht unter einem echten PTY ein stdout-TTY (OTP bleibt moeglich)"
+    assertContains "${fixture}/calls.txt" "PUBLISH_STDIO_TTY=yes" \
+        "TTY: npm sieht unter einem echten PTY **stdin und stdout** als TTY (OTP bleibt moeglich)"
     assertEquals "1" "$(publishCalls)" "TTY: genau ein Upload-Versuch"
     teardownFixture
 }
@@ -456,6 +460,52 @@ testWorkspaceWirdAbgelehnt() {
     assertEquals "1" "${rc}" "Workspace: Abbruch mit 1"
     assertEquals "0" "$(publishCalls)" "Workspace: nichts wird hochgeladen"
     assertContains "${fixture}/err.txt" "anderes Paket" "Workspace: nennt die Gefahr"
+    teardownFixture
+}
+
+# Runde 3, Finding 1: `npm publish ./anderes-paket` lud ein anderes Paket hoch
+# als das gepruefte — und der Wrapper meldete den Erfolg des geprueften.
+testPositionalerSpecWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish ./anderes-paket || rc=$?
+    assertEquals "1" "${rc}" "package-spec: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "package-spec: nichts wird hochgeladen"
+    assertNotContains "${fixture}/out.txt" "veroeffentlicht" \
+        "package-spec: meldet keinen Erfolg"
+    assertContains "${fixture}/err.txt" "package-spec" "package-spec: nennt die Gefahr"
+    teardownFixture
+}
+
+# Runde 3, Finding 1: `--dry-run` endet mit 0, ohne etwas zu veroeffentlichen.
+testDryRunWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --dry-run || rc=$?
+    assertEquals "1" "${rc}" "--dry-run: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "--dry-run: npm wird gar nicht erst gerufen"
+    assertNotContains "${fixture}/out.txt" "veroeffentlicht" \
+        "--dry-run: meldet keinen Erfolg"
+    teardownFixture
+}
+
+testErlaubteArgumenteGehenDurch() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --otp 123456 --tag=next \
+        --access public --provenance || rc=$?
+    assertEquals "0" "${rc}" "Positivliste: erlaubte Argumente laufen durch"
+    assertContains "${fixture}/calls.txt" "publish --otp 123456 --tag=next --access public --provenance" \
+        "Positivliste: beide Schreibweisen kommen unveraendert bei npm an"
+    teardownFixture
+}
+
+testFehlenderWertWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --otp || rc=$?
+    assertEquals "1" "${rc}" "fehlender Wert: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "fehlender Wert: nichts wird hochgeladen"
     teardownFixture
 }
 
@@ -546,6 +596,10 @@ runAll() {
     testRegistryOverrideGiltFuerAlleSchritte
     testScopeRegistryWirdAbgelehnt
     testWorkspaceWirdAbgelehnt
+    testPositionalerSpecWirdAbgelehnt
+    testDryRunWirdAbgelehnt
+    testErlaubteArgumenteGehenDurch
+    testFehlenderWertWirdAbgelehnt
     testEchterE409WirdWiederholt
     testFremder409LoestKeineWiederholungAus
     testErfolgTrotzFehlerWirdErkannt
