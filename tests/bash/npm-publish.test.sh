@@ -24,6 +24,9 @@
 # - `registry_override_gilt_fuer_alle_schritte`: Ein `--registry` hinter
 #   `--publish` verschob nur den Upload; Anmeldung und Pruefung schauten
 #   weiter auf die alte Registry.
+# - `wert_darf_keine_option_sein`: `--otp --dry-run` rutschte durch die
+#   Positivliste, weil die Wertoption das naechste Token ungeprueft schluckte.
+#   npm liest dann `otp=--dry-run` und `dry-run=false` — ein echter Upload.
 # - `lifecycle_hooks_verhindern_wiederholung`: Ein zweiter `npm publish`
 #   fuehrt `prepare` und Geschwister erneut aus.
 #
@@ -500,6 +503,30 @@ testErlaubteArgumenteGehenDurch() {
     teardownFixture
 }
 
+# Runde 4, Finding 1: Die Wertoption schluckte das naechste Token ungeprueft.
+# `--otp --dry-run` kam damit durch — und npm liest dann `otp=--dry-run` und
+# `dry-run=false`: aus dem gewollten Trockenlauf wird ein **echter Upload**.
+testWertDarfKeineOptionSein() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --otp --dry-run || rc=$?
+    assertEquals "1" "${rc}" "Wert-als-Option: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "Wert-als-Option: nichts wird hochgeladen"
+    assertNotContains "${fixture}/out.txt" "veroeffentlicht" \
+        "Wert-als-Option: meldet keinen Erfolg"
+    assertContains "${fixture}/err.txt" "--dry-run" "Wert-als-Option: nennt das Token"
+    teardownFixture
+}
+
+testLeererWertWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --otp= || rc=$?
+    assertEquals "1" "${rc}" "leerer Wert: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "leerer Wert: nichts wird hochgeladen"
+    teardownFixture
+}
+
 testFehlenderWertWirdAbgelehnt() {
     setupFixture
     local rc=0
@@ -600,6 +627,8 @@ runAll() {
     testDryRunWirdAbgelehnt
     testErlaubteArgumenteGehenDurch
     testFehlenderWertWirdAbgelehnt
+    testWertDarfKeineOptionSein
+    testLeererWertWirdAbgelehnt
     testEchterE409WirdWiederholt
     testFremder409LoestKeineWiederholungAus
     testErfolgTrotzFehlerWirdErkannt

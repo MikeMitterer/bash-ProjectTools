@@ -296,21 +296,44 @@ containsWord() {
 # Returns:
 #   0 wenn alle Argumente unterstuetzt sind, sonst 1 mit Meldung
 rejectUnsupportedArgs() {
-    local arg="" expect_value="no"
+    local arg="" expect_value="no" pending=""
 
     for arg in "$@"; do
         if [[ "${expect_value}" == "yes" ]]; then
             expect_value="no"
+
+            # **Ein Wert darf keine Option sein.** Sonst schluckt die
+            # Wertoption das verbotene Token und npm liest es als ihren Wert:
+            # `--otp --dry-run` ergibt bei npm 11 `otp=--dry-run` und
+            # `dry-run=false` — aus dem gewollten Trockenlauf wird ein echter
+            # Upload, und die Positivliste haette ihn durchgewinkt.
+            if [[ "${arg}" == -* ]]; then
+                echo -e "  ${RED}✗${NC} ${YELLOW}${pending}${NC} braucht einen Wert," \
+                        "bekam aber die Option ${YELLOW}${arg}${NC}." >&2
+                echo -e "      npm wuerde ${YELLOW}${arg}${NC} als Wert von" \
+                        "${YELLOW}${pending}${NC} lesen — die Option waere" >&2
+                echo -e "      wirkungslos. Bei ${YELLOW}--dry-run${NC} hiesse das:" \
+                        "ein echter Upload statt eines Trockenlaufs." >&2
+                return 1
+            fi
+
             continue
         fi
 
         if [[ "${arg}" == *=* ]] \
             && containsWord "${arg%%=*}" "${PASSTHROUGH_VALUE_OPTIONS[@]}"; then
+
+            if [[ -z "${arg#*=}" ]]; then
+                echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} hat einen leeren Wert." >&2
+                return 1
+            fi
+
             continue
         fi
 
         if containsWord "${arg}" "${PASSTHROUGH_VALUE_OPTIONS[@]}"; then
             expect_value="yes"
+            pending="${arg}"
             continue
         fi
 
@@ -353,7 +376,7 @@ rejectUnsupportedArgs() {
     done
 
     if [[ "${expect_value}" == "yes" ]]; then
-        echo -e "  ${RED}✗${NC} Dem letzten Argument fehlt sein Wert." >&2
+        echo -e "  ${RED}✗${NC} ${YELLOW}${pending}${NC} steht am Ende ohne Wert." >&2
         return 1
     fi
 
