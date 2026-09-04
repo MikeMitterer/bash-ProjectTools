@@ -115,7 +115,7 @@ Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
 publish: ##R Paket veröffentlichen  [CONFIRM=yes]
 	@test "$(CONFIRM)" = "yes" || \
 	  (echo "${ORANGE}Sicherheitscheck: make $@ CONFIRM=yes${NC}" && exit 1)
-	@bash $(PROJECT_TOOLS)/bash/npm-publish.sh --publish
+	@bash $(PROJECT_TOOLS)/bash/npm-publish.sh --publish $(NPM_ARGS)
 ```
 
 Es räumt drei Fallen ab, die man sonst je einmal selbst sucht:
@@ -129,10 +129,32 @@ Es räumt drei Fallen ab, die man sonst je einmal selbst sucht:
 3. **`409 Conflict — Failed to save packument`.** Registry-seitig und meist
    vorübergehend; der mitgelieferte Erklärungstext passt fast nie. Das Script
    sieht nach, ob das Paket trotz des Fehlers oben liegt, und versucht es sonst
-   erneut. **Nur bei `409`** — bei `401`, `402` oder `403` bricht es sofort ab,
-   dort ändert ein zweiter Versuch nichts.
+   erneut.
 
 `--publish` ist der ganze Vorgang; `--ensure` stellt nur die Anmeldung sicher
 (private Abhängigkeiten installieren, CI); `--status` berichtet nur und taugt
 dort, wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
 `publishConfig.registry` schlägt die Scope-Einstellung, diese die globale.
+
+### Vier Grenzen, die der Vertrag ausdrücklich zieht
+
+Sie stehen hier, weil jede von ihnen einmal eine echte Fehlfunktion war:
+
+| Grenze | Warum |
+|---|---|
+| **stdout des Uploads bleibt unangetastet** | npm bricht seine OTP-Abfrage ab, sobald `stdin` **oder** `stdout` kein TTY ist (npm 11, `lib/utils/auth.js:10`). Ein Einfangen der Ausgabe schaltet die Zwei-Faktor-Anmeldung stumm ab. Eingefangen wird nur stderr — dort stehen npms Fehlerzeilen ohnehin. |
+| **Wiederholt wird nur bei exaktem `E409`** | Die blosse Zeichenfolge `409` steht auch in einem Paketnamen oder einer URL. Einen eigenen Prozess-Exit-Code je HTTP-Status gibt es nicht; npm endet bei jedem HTTP-Fehler mit `1`. |
+| **„nicht vorhanden" ≠ „nicht feststellbar"** | Fällt die Registry-Abfrage aus, wird weder „ist noch frei" noch „liegt nicht oben" behauptet. `--status` wird bei unbekanntem Zustand **nicht grün**. |
+| **Keine Wiederholung bei Lifecycle-Scripten** | Jeder neue Versuch startet `npm publish` komplett neu, samt `prepublishOnly`, `prepack`, `prepare`, `postpack`, `publish` und `postpublish`. Dass die Registry eine Version nicht überschreibt, macht diese **lokalen** Hooks nicht idempotent. Erklärt die `package.json` einen davon, bricht das Script nach dem ersten Versuch ab und nennt ihn. |
+
+Alles nach `--publish` geht unverändert an `npm publish` weiter — deshalb das
+`$(NPM_ARGS)` oben:
+
+```bash
+make publish CONFIRM=yes NPM_ARGS=--otp=123456
+```
+
+Geprüft wird das alles von `tests/bash/npm-publish.test.sh --run`: Das Script
+läuft dort als Prozess über seinen öffentlichen Aufruf gegen eine
+`npm`-Attrappe. Jede der vier Grenzen hat ihren eigenen Fall, und jeder wurde
+gegen einen Mutanten geprüft, der die Korrektur zurückdreht.
