@@ -35,7 +35,16 @@
 # - **„nicht vorhanden" und „nicht feststellbar" sind zwei Zustaende.** Faellt
 #   die Registry-Abfrage aus, darf niemand „ist noch frei" oder „liegt nicht
 #   oben" behaupten — das erste ist eine falsche Freigabe, das zweite verkennt
-#   einen geglueckten Upload.
+#   einen geglueckten Upload. Dasselbe gilt fuer eine unlesbare Antwort und
+#   fuer `E404`: Bei einem privaten Paket bedeutet 404 „gibt es nicht **oder**
+#   du darfst nicht" — genau die Verschleierung aus Punkt 1. Beide zaehlen
+#   deshalb als *unbekannt*, nicht als *frei*.
+# - **Ein Ziel fuer alle Schritte.** Ein `--registry` unter den
+#   weitergereichten Argumenten aendert sonst nur den Upload, waehrend
+#   Anmeldung, Vor- und Nachpruefung gegen die alte Registry laufen und
+#   Fragen ueber ein Paket beantworten, das gar nicht gemeint ist. Argumente,
+#   deren Zielwirkung dieses Script nicht nachbilden kann — Scope-Registries
+#   und Workspaces —, werden abgelehnt statt still danebenzugreifen.
 # - **Wiederholt wird nur ohne Lifecycle-Scripte.** Jeder neue Versuch startet
 #   `npm publish` komplett neu, samt `prepublishOnly`, `prepack`, `prepare`,
 #   `postpack`, `publish` und `postpublish`. Dass die Registry eine Version
@@ -207,6 +216,82 @@ npmErrorCode() {
     sed -nE 's/.*npm (error|ERR!) code (E[A-Z0-9]+).*/\2/p' "$1" 2>/dev/null | head -1
 }
 
+# Zieht ein `--registry` aus den weitergereichten Argumenten.
+#
+# Beide Schreibweisen, die npm kennt: `--registry=URL` und `--registry URL`.
+# Der letzte Treffer gewinnt — so haelt es npm auch.
+#
+# Params:
+#   $@ - die weitergereichten Argumente
+#
+# Returns:
+#   0; die URL auf stdout, sonst nichts
+registryOverride() {
+    local found="" arg="" expect_value="no"
+
+    for arg in "$@"; do
+        if [[ "${expect_value}" == "yes" ]]; then
+            found="${arg}"
+            expect_value="no"
+            continue
+        fi
+
+        case "${arg}" in
+            --registry=*) found="${arg#--registry=}" ;;
+            --registry)   expect_value="yes" ;;
+        esac
+    done
+
+    echo "${found}"
+}
+
+# Lehnt Argumente ab, deren Wirkung dieses Script nicht abbilden kann.
+#
+# Nicht jedes npm-Argument ist harmlos durchzureichen: Zwei Klassen
+# verschieben das **Ziel** des Uploads, waehrend Anmeldung, Vor- und
+# Nachpruefung weiter auf das alte Ziel schauen wuerden. Ein `--registry`
+# faengt `registryOverride` ab; alles Uebrige aus diesen Klassen wird
+# abgelehnt, statt still danebenzugreifen:
+#
+# - **Scope-Registries** (`--@scope:registry=…`) — npm loest sie je Paketname
+#   auf; welches Ziel am Ende gilt, kann dieses Script nicht nachbilden.
+# - **Workspaces** (`-w`, `--workspace…`) — dann veroeffentlicht npm ein
+#   anderes Paket als das der `package.json` im aktuellen Verzeichnis, und
+#   Name wie Version dieser Pruefung waeren schlicht die falschen.
+#
+# Params:
+#   $@ - die weitergereichten Argumente
+#
+# Returns:
+#   0 wenn alle Argumente abbildbar sind, sonst 1 mit Meldung
+rejectUnmodelledArgs() {
+    local arg=""
+
+    for arg in "$@"; do
+        case "${arg}" in
+            --@*:registry|--@*:registry=*)
+                echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} wird nicht durchgereicht:" \
+                        "Welche Registry am Ende gilt," >&2
+                echo -e "      kann dieses Script nicht nachbilden — Vor- und" \
+                        "Nachpruefung liefen ins Leere." >&2
+                echo -e "      Nimm ${GREEN}--registry=…${NC} oder setze es in der" \
+                        "npm-Konfiguration." >&2
+                return 1
+                ;;
+            -w|--workspace|--workspace=*|--workspaces|--workspaces=*)
+                echo -e "  ${RED}✗${NC} ${YELLOW}${arg}${NC} wird nicht durchgereicht:" \
+                        "Dann veroeffentlicht npm ein" >&2
+                echo -e "      anderes Paket als das hier gepruefte. Ruf das Script im" \
+                        "Verzeichnis des" >&2
+                echo -e "      gewuenschten Pakets auf." >&2
+                return 1
+                ;;
+        esac
+    done
+
+    return 0
+}
+
 # Stellt fest, ob eine Version in der Registry liegt.
 #
 # **Drei Zustaende, nicht zwei.** Faellt die Abfrage aus, ist das nicht
@@ -227,8 +312,8 @@ npmErrorCode() {
 #   0; `published`, `absent` oder `unknown` auf stdout
 versionState() {
     local name="$1" version="$2" registry="$3"
-    local versions="" errors="" state="unknown"
-    local -i rc=0
+    local versions="" errors="" state="unknown ausfall"
+    local -i rc=0 probe=0
 
     errors="$(mktemp)"
 
@@ -236,22 +321,29 @@ versionState() {
         --registry "${registry}" 2>"${errors}")" || rc=$?
 
     if (( rc == 0 )); then
-        # `npm view` liefert bei genau einer Version eine Zeichenkette statt
-        # einer Liste — beide Formen muessen hier durchgehen.
-        if node -e '
+        # Drei Ausgaenge, nicht zwei: Eine unlesbare Antwort ist **kein**
+        # „Version fehlt". `npm view` liefert bei genau einer Version zudem
+        # eine Zeichenkette statt einer Liste — beide Formen gehen durch.
+        probe=0
+        node -e '
             let list
-            try { list = JSON.parse(process.argv[1]) } catch { process.exit(1) }
+            try { list = JSON.parse(process.argv[1]) } catch { process.exit(2) }
+            if (!Array.isArray(list) && typeof list !== "string") process.exit(2)
             if (!Array.isArray(list)) list = [list]
             process.exit(list.includes(process.argv[2]) ? 0 : 1)
-        ' "${versions}" "${version}" 2>/dev/null; then
-            state="published"
-        else
-            state="absent"
-        fi
+        ' "${versions}" "${version}" 2>/dev/null || probe=$?
+
+        case ${probe} in
+            0) state="published" ;;
+            1) state="absent" ;;
+            *) state="unknown unlesbar" ;;
+        esac
     elif grep -qE 'npm (error|ERR!) code E404' "${errors}"; then
-        # Ein unbekanntes Paket ist kein Ausfall: Vor der ersten
-        # Veroeffentlichung gibt es das Dokument schlicht noch nicht.
-        state="absent"
+        # **Kein sicheres „gibt es nicht".** Bei einem privaten Paket antwortet
+        # die Registry auch dann mit 404, wenn das Konto keinen Zugriff hat —
+        # dieselbe Verschleierung, die oben im Kopf steht. Wer daraus „frei"
+        # macht, gibt einem Unberechtigten eine gruene Auskunft.
+        state="unknown unbekanntes-paket"
     fi
 
     rm -f "${errors}"
@@ -377,12 +469,13 @@ publishWithRetries() {
             return 0
         fi
 
-        if [[ "${state}" == "unknown" ]]; then
+        if [[ "${state%% *}" == "unknown" ]]; then
             echo -e "  ${RED}✗${NC} Upload gescheitert **und** der Registry-Zustand ist" \
-                    "nicht feststellbar." >&2
+                    "nicht feststellbar (${YELLOW}${state#* }${NC})." >&2
             echo -e "      Ob ${YELLOW}${version}${NC} oben liegt, muss von Hand" \
                     "geklaert werden:" >&2
-            echo -e "      ${GREEN}npm view ${name} versions --prefer-online${NC}" >&2
+            echo -e "      ${GREEN}npm view ${name} versions --prefer-online" \
+                    "--registry ${registry}${NC}" >&2
             return 1
         fi
 
@@ -428,10 +521,24 @@ publishWithRetries() {
 run() {
     local mode="$1"
     shift
-    local registry name version state
+    local registry name version state override
     local -i rc=0
 
+    if ! rejectUnmodelledArgs "$@"; then
+        echo
+        return 1
+    fi
+
     registry="$(resolveRegistry)"
+
+    # **Ein Ziel fuer alle Schritte.** Ein `--registry` unter den
+    # weitergereichten Argumenten aendert nur den Upload; Anmeldung, Vor- und
+    # Nachpruefung liefen sonst gegen eine andere Registry und beantworteten
+    # Fragen ueber ein Paket, das gar nicht gemeint ist.
+    override="$(registryOverride "$@")"
+    if [[ -n "${override}" ]]; then
+        registry="${override}"
+    fi
 
     echo
     echo -e "${CYAN}▶ npm-Veroeffentlichung${NC}"
@@ -468,9 +575,23 @@ run() {
         return 1
     fi
 
-    if [[ "${state}" == "unknown" ]]; then
-        echo -e "  ${YELLOW}⚠${NC} Registry nicht erreichbar — ob ${YELLOW}${version}${NC}" \
-                "frei ist, bleibt offen"
+    if [[ "${state%% *}" == "unknown" ]]; then
+        case "${state#* }" in
+            unbekanntes-paket)
+                echo -e "  ${YELLOW}⚠${NC} Paket nicht gefunden — entweder noch nie" \
+                        "veroeffentlicht ${YELLOW}oder${NC} kein Zugriff"
+                echo -e "      Die Registry unterscheidet das nicht; ob ${YELLOW}${version}${NC}" \
+                        "frei ist, bleibt damit offen."
+                ;;
+            unlesbar)
+                echo -e "  ${YELLOW}⚠${NC} Antwort der Registry nicht lesbar — ob" \
+                        "${YELLOW}${version}${NC} frei ist, bleibt offen"
+                ;;
+            *)
+                echo -e "  ${YELLOW}⚠${NC} Registry nicht erreichbar — ob ${YELLOW}${version}${NC}" \
+                        "frei ist, bleibt offen"
+                ;;
+        esac
 
         if [[ "${mode}" == "status" ]]; then
             echo

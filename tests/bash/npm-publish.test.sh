@@ -7,18 +7,23 @@
 # gesourcten Funktionen — sonst prueft der Test eine Verdrahtung, die es beim
 # echten Aufruf so nicht gibt.
 #
-# Vier Faelle sind der Grund, dass es diese Datei gibt. Jeder war eine echte
-# Fehlfunktion, gefunden im Review von T-20:
+# Die Faelle, derentwegen es diese Datei gibt. Jeder war eine echte
+# Fehlfunktion, gefunden in den Review-Runden zu T-20:
 #
-# - `reicht_stdout_durch`: Ein `output="$(npm publish)"` nimmt npm das TTY und
-#   schaltet damit die OTP-Abfrage stumm ab (npm 11, `lib/utils/auth.js:10`
-#   prueft `stdin` **und** `stdout`). Der Test prueft die beobachtbare Folge:
-#   Was npm nach stdout schreibt, muss beim Aufrufer ankommen.
+# - `laeuft_unter_echtem_tty`: npm bricht seine OTP-Abfrage ab, sobald `stdin`
+#   **oder** `stdout` kein TTY ist (npm 11, `lib/utils/auth.js:10`). Geprueft
+#   wird das unter einem **echten PTY** — die schwaechere Frage „kommt npms
+#   Ausgabe beim Aufrufer an?" beantwortet auch eine `tee`-Pipeline mit ja,
+#   waehrend npm trotzdem kein TTY saehe.
 # - `fremder_409_wird_nicht_wiederholt`: Ein `grep '409'` auf der ganzen
 #   Ausgabe trifft auch ein Paket namens `pkg409`.
-# - `unbekannter_zustand_*`: Faellt die Registry-Abfrage aus, ist das nicht
-#   „nicht vorhanden". Weder „frei" noch „liegt nicht oben" darf behauptet
-#   werden.
+# - `unbekanntes_paket_*`, `unlesbare_antwort_*`, `unbekannter_zustand_*`:
+#   Weder ein Ausfall der Abfrage noch eine unlesbare Antwort noch ein `E404`
+#   sind ein sicheres „nicht vorhanden". Bei einem privaten Paket heisst 404
+#   „gibt es nicht **oder** du darfst nicht".
+# - `registry_override_gilt_fuer_alle_schritte`: Ein `--registry` hinter
+#   `--publish` verschob nur den Upload; Anmeldung und Pruefung schauten
+#   weiter auf die alte Registry.
 # - `lifecycle_hooks_verhindern_wiederholung`: Ein zweiter `npm publish`
 #   fuehrt `prepare` und Geschwister erneut aus.
 #
@@ -47,6 +52,8 @@ readonly PKG_NAME="@scope/demo"
 readonly PKG_VERSION="1.0.0"
 readonly OTHER_VERSION="0.9.0"
 readonly STDOUT_MARKER="NPM-SCHREIBT-NACH-STDOUT"
+readonly DEFAULT_REGISTRY="https://default.example.test/"
+readonly OVERRIDE_REGISTRY="https://override.example.test/"
 
 tests_run=0
 tests_failed=0
@@ -123,11 +130,17 @@ assertNotContains() {
 
 # Baut ein Wegwerf-Paket mit `npm`- und `sleep`-Attrappe auf dem PATH.
 #
-# Die `npm`-Attrappe protokolliert jeden Aufruf mit allen Argumenten. Ihre
-# Antworten steuern zwei Umgebungsvariablen:
+# Die Attrappe protokolliert je Aufruf drei Zeilen:
+#
+#   <unterbefehl> <alle argumente>   fuer Zaehlung und Argumentpruefung
+#   REGISTRY[<unterbefehl>]=<url>    welches Ziel dieser Schritt benutzte
+#   PUBLISH_STDOUT_TTY=<yes|no>      nur bei `publish`: sah npm ein TTY?
+#
+# Ihre Antworten steuern zwei Umgebungsvariablen:
 #
 #   STUB_VIEW_SEQUENCE  Antworten fuer `npm view`, eine je Aufruf; die letzte
-#                       wiederholt sich. Werte: published | absent | e404 | efail
+#                       wiederholt sich. Werte:
+#                       published | absent | unparsable | e404 | efail
 #   STUB_PUBLISH_CODE   npm-Fehlercode fuer `npm publish`; leer = Erfolg
 setupFixture() {
     fixture="$(mktemp -d)"
@@ -143,15 +156,28 @@ STUB
 
     cat > "${fixture}/bin/npm" <<STUB
 #!/usr/bin/env bash
+sub="\$1"
 echo "\$*" >> "\${STUB_LOG}"
 
-case "\$1" in
+# Welche Registry benutzte dieser Schritt tatsaechlich?
+reg="${DEFAULT_REGISTRY}"
+prev=""
+for a in "\$@"; do
+    case "\${a}" in
+        --registry=*) reg="\${a#--registry=}" ;;
+    esac
+    [[ "\${prev}" == "--registry" ]] && reg="\${a}"
+    prev="\${a}"
+done
+echo "REGISTRY[\${sub}]=\${reg}" >> "\${STUB_LOG}"
+
+case "\${sub}" in
     whoami)
         echo "testuser"
         exit 0
         ;;
     config)
-        echo "https://registry.example.test/"
+        echo "${DEFAULT_REGISTRY}"
         exit 0
         ;;
     view)
@@ -164,19 +190,28 @@ case "\$1" in
         echo \$(( idx + 1 )) > "\${STUB_STATE}"
 
         case "\${answer}" in
-            published) echo '["${PKG_VERSION}"]'; exit 0 ;;
-            absent)    echo '["${OTHER_VERSION}"]'; exit 0 ;;
-            e404)      echo "npm error code E404" >&2; exit 1 ;;
-            *)         echo "npm error code E500" >&2; exit 1 ;;
+            published)  echo '["${PKG_VERSION}"]'; exit 0 ;;
+            absent)     echo '["${OTHER_VERSION}"]'; exit 0 ;;
+            unparsable) echo 'not-json'; exit 0 ;;
+            e404)       echo "npm error code E404" >&2; exit 1 ;;
+            *)          echo "npm error code E500" >&2; exit 1 ;;
         esac
         ;;
     publish)
+        # Die Zusage, an der die OTP-Abfrage haengt. Sie ist nur unter einem
+        # echten PTY beobachtbar — im umgeleiteten Harness steht hier immer
+        # \`no\`, egal was das Script tut.
+        if [[ -t 1 ]]; then
+            echo "PUBLISH_STDOUT_TTY=yes" >> "\${STUB_LOG}"
+        else
+            echo "PUBLISH_STDOUT_TTY=no" >> "\${STUB_LOG}"
+        fi
         echo "${STDOUT_MARKER}"
         if [[ -z "\${STUB_PUBLISH_CODE:-}" ]]; then
             exit 0
         fi
         echo "npm error code \${STUB_PUBLISH_CODE}" >&2
-        echo "npm error \${STUB_PUBLISH_CODE} - PUT https://registry.example.test/pkg409" >&2
+        echo "npm error \${STUB_PUBLISH_CODE} - PUT ${DEFAULT_REGISTRY}pkg409" >&2
         exit 1
         ;;
 esac
@@ -191,6 +226,12 @@ teardownFixture() {
     fixture=""
 }
 
+# Leert Protokoll und Attrappen-Zustand vor einem Lauf.
+resetStub() {
+    rm -f "${fixture}/calls.txt" "${fixture}/state.txt"
+    : > "${fixture}/calls.txt"
+}
+
 # Ruft das Script im Fixture auf und legt Ausgabe und Protokoll dort ab.
 #
 # Params:
@@ -202,8 +243,7 @@ teardownFixture() {
 runScript() {
     local rc=0
 
-    rm -f "${fixture}/calls.txt" "${fixture}/state.txt"
-    : > "${fixture}/calls.txt"
+    resetStub
 
     (
         cd "${fixture}" || exit 1
@@ -215,6 +255,62 @@ runScript() {
     ) || rc=$?
 
     return ${rc}
+}
+
+# Wie runScript, nur unter einem **echten PTY**.
+#
+# Das ist der einzige Weg, die TTY-Zusage ohne echten Upload zu pruefen: Ein
+# umgeleitetes stdout ist im Harness immer kein TTY, egal was das Script tut.
+# Unter dem PTY sieht die Attrappe genau das, was npm sehen wuerde.
+#
+# Genommen wird `script`, nicht Pythons `pty.spawn`: Letzteres liefert zwar
+# ein korrektes PTY, kehrt auf macOS aber nach dem Kindprozess nicht aus
+# seiner Kopierschleife zurueck — der Testlauf haengt dann endlos.
+#
+# Die beiden `script`-Fassungen sind unvereinbar (BSD nimmt das Kommando als
+# Argumente, GNU als Zeichenkette hinter `-c`), deshalb erst die eine, dann
+# die andere. `< /dev/null` verhindert, dass die Sitzung auf eine Eingabe
+# wartet; das Kind behaelt sein TTY trotzdem, es bekommt die PTY-Seite.
+#
+# Geprueft wird ausschliesslich das Protokoll der Attrappe — `script`
+# schreibt Wagenruecklaeufe und ein `^D` in die Ausgabe, die dort nichts
+# verloren haetten.
+#
+# Params:
+#   $@ - Argumente fuer das Script
+#
+# Returns:
+#   0 wenn ein PTY-Lauf zustande kam, sonst 127
+runScriptUnderPty() {
+    command -v script >/dev/null 2>&1 || return 127
+
+    resetStub
+
+    (
+        cd "${fixture}" || exit 1
+        export PATH="${fixture}/bin:${PATH}"
+        export STUB_LOG="${fixture}/calls.txt"
+        export STUB_STATE="${fixture}/state.txt"
+
+        script -q /dev/null bash "${SCRIPT_UNDER_TEST}" "$@" \
+            < /dev/null > "${fixture}/out.txt" 2> "${fixture}/err.txt"
+    ) || true
+
+    grep -q '^publish' "${fixture}/calls.txt" 2>/dev/null && return 0
+
+    # Zweiter Anlauf in der GNU-Fassung.
+    (
+        cd "${fixture}" || exit 1
+        export PATH="${fixture}/bin:${PATH}"
+        export STUB_LOG="${fixture}/calls.txt"
+        export STUB_STATE="${fixture}/state.txt"
+
+        script -qec "bash '${SCRIPT_UNDER_TEST}' $*" /dev/null \
+            < /dev/null > "${fixture}/out.txt" 2> "${fixture}/err.txt"
+    ) || true
+
+    grep -q '^publish' "${fixture}/calls.txt" 2>/dev/null && return 0
+    return 127
 }
 
 # Zaehlt, wie oft `npm publish` aufgerufen wurde.
@@ -252,16 +348,29 @@ testStatusMeldetFreieVersion() {
     teardownFixture
 }
 
-testUnbekanntesPaketGiltAlsFrei() {
+# Runde 2, Finding 2: `E404` heisst bei einem privaten Paket „gibt es nicht
+# ODER du darfst nicht". Als „frei" gelesen ist das eine falsche Freigabe.
+testUnbekanntesPaketIstNichtSicherFrei() {
     setupFixture
     local rc=0
     STUB_VIEW_SEQUENCE="e404" runScript --status || rc=$?
-    assertEquals "0" "${rc}" "status: E404 heisst 'noch nie veroeffentlicht', kein Ausfall"
-    assertContains "${fixture}/out.txt" "ist noch frei" "status: E404 gilt als frei"
+    assertEquals "1" "${rc}" "E404: keine gruene Auskunft"
+    assertNotContains "${fixture}/out.txt" "ist noch frei" "E404: behauptet nicht, die Version sei frei"
+    assertContains "${fixture}/out.txt" "kein Zugriff" "E404: nennt beide moeglichen Ursachen"
     teardownFixture
 }
 
-# Finding 3 aus dem Review: Eine Auskunft, die nichts weiss, war gruen.
+# Runde 2, Finding 2: Eine unlesbare Antwort ist kein „Version fehlt".
+testUnlesbareAntwortIstNichtFrei() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="unparsable" runScript --status || rc=$?
+    assertEquals "1" "${rc}" "unlesbare Antwort: keine gruene Auskunft"
+    assertNotContains "${fixture}/out.txt" "ist noch frei" "unlesbare Antwort: behauptet nichts"
+    assertContains "${fixture}/out.txt" "nicht lesbar" "unlesbare Antwort: benennt die Ursache"
+    teardownFixture
+}
+
 testStatusWirdBeiUnbekanntemZustandNichtGruen() {
     setupFixture
     local rc=0
@@ -271,19 +380,37 @@ testStatusWirdBeiUnbekanntemZustandNichtGruen() {
     teardownFixture
 }
 
-# Finding 1 aus dem Review: Das Einfangen der Ausgabe nahm npm das TTY und
-# damit die OTP-Abfrage. Geprueft wird die beobachtbare Folge.
-testReichtStdoutDurch() {
+# Die schwaechere Zusage: npms Ausgabe erreicht den Aufrufer. Notwendig, aber
+# **nicht hinreichend** fuer die OTP-Abfrage — dafuer gibt es den PTY-Test.
+testStdoutErreichtDenAufrufer() {
     setupFixture
     local rc=0
     STUB_VIEW_SEQUENCE="absent" runScript --publish || rc=$?
     assertEquals "0" "${rc}" "publish: Erfolgsfall endet mit 0"
     assertContains "${fixture}/out.txt" "${STDOUT_MARKER}" \
-        "publish: npms stdout erreicht den Aufrufer (OTP bleibt moeglich)"
+        "publish: npms stdout-Ausgabe erreicht den Aufrufer"
     teardownFixture
 }
 
-# Finding 1, zweite Haelfte: `--otp=…` wurde geschluckt statt weitergereicht.
+# Runde 2, Finding 3: **Die** Zusage, an der die OTP-Abfrage haengt. Unter
+# einem echten PTY muss npm ein TTY auf stdout sehen.
+testPublishLaeuftUnterEchtemTty() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScriptUnderPty --publish || rc=$?
+
+    if [[ ${rc} -eq 127 ]]; then
+        report 1 "TTY: kein brauchbares 'script' — die Gegenprobe konnte nicht laufen"
+        teardownFixture
+        return
+    fi
+
+    assertContains "${fixture}/calls.txt" "PUBLISH_STDOUT_TTY=yes" \
+        "TTY: npm sieht unter einem echten PTY ein stdout-TTY (OTP bleibt moeglich)"
+    assertEquals "1" "$(publishCalls)" "TTY: genau ein Upload-Versuch"
+    teardownFixture
+}
+
 testWeitereArgumenteGehenAnNpm() {
     setupFixture
     local rc=0
@@ -291,6 +418,44 @@ testWeitereArgumenteGehenAnNpm() {
     assertEquals "0" "${rc}" "publish: zusaetzliche Argumente stoeren nicht"
     assertContains "${fixture}/calls.txt" "publish --otp=123456 --tag next" \
         "publish: reicht weitere Argumente unveraendert an npm weiter"
+    teardownFixture
+}
+
+# Runde 2, Finding 1: Der Upload ging in die Override-Registry, Anmeldung und
+# Pruefung schauten weiter auf die Default-Registry — und rc war 0.
+testRegistryOverrideGiltFuerAlleSchritte() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish "--registry=${OVERRIDE_REGISTRY}" || rc=$?
+    assertEquals "0" "${rc}" "Registry-Override: Lauf endet mit 0"
+    assertContains "${fixture}/calls.txt" "REGISTRY[whoami]=${OVERRIDE_REGISTRY}" \
+        "Registry-Override: die Anmeldung fragt am selben Ort"
+    assertContains "${fixture}/calls.txt" "REGISTRY[view]=${OVERRIDE_REGISTRY}" \
+        "Registry-Override: die Pruefung liest am selben Ort"
+    assertContains "${fixture}/calls.txt" "REGISTRY[publish]=${OVERRIDE_REGISTRY}" \
+        "Registry-Override: der Upload schreibt dorthin"
+    assertNotContains "${fixture}/calls.txt" "REGISTRY[view]=${DEFAULT_REGISTRY}" \
+        "Registry-Override: kein Schritt bleibt auf der alten Registry"
+    teardownFixture
+}
+
+testScopeRegistryWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish "--@scope:registry=${OVERRIDE_REGISTRY}" || rc=$?
+    assertEquals "1" "${rc}" "Scope-Registry: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "Scope-Registry: nichts wird hochgeladen"
+    assertContains "${fixture}/err.txt" "nicht durchgereicht" "Scope-Registry: sagt warum"
+    teardownFixture
+}
+
+testWorkspaceWirdAbgelehnt() {
+    setupFixture
+    local rc=0
+    STUB_VIEW_SEQUENCE="absent" runScript --publish --workspace=paket-a || rc=$?
+    assertEquals "1" "${rc}" "Workspace: Abbruch mit 1"
+    assertEquals "0" "$(publishCalls)" "Workspace: nichts wird hochgeladen"
+    assertContains "${fixture}/err.txt" "anderes Paket" "Workspace: nennt die Gefahr"
     teardownFixture
 }
 
@@ -303,7 +468,7 @@ testEchterE409WirdWiederholt() {
     teardownFixture
 }
 
-# Finding 2 aus dem Review: `grep '409'` traf auch `pkg409` in einer URL.
+# Runde 1, Finding 2: `grep '409'` traf auch `pkg409` in einer URL.
 testFremder409LoestKeineWiederholungAus() {
     setupFixture
     local rc=0
@@ -323,8 +488,6 @@ testErfolgTrotzFehlerWirdErkannt() {
     teardownFixture
 }
 
-# Finding 3 aus dem Review, zweite Haelfte: Nach dem Fehlschlag durfte das
-# Script nicht behaupten, die Version liege nicht oben.
 testUnbekannterZustandNachFehlschlagBrichtAb() {
     setupFixture
     local rc=0
@@ -338,8 +501,8 @@ testUnbekannterZustandNachFehlschlagBrichtAb() {
     teardownFixture
 }
 
-# Finding 4 aus dem Review: Jeder neue Versuch fuehrt die Lifecycle-Scripte
-# des Pakets erneut aus.
+# Runde 1, Finding 4: Jeder neue Versuch fuehrt die Lifecycle-Scripte des
+# Pakets erneut aus.
 testLifecycleHooksVerhindernWiederholung() {
     setupFixture
     printf '{"name":"%s","version":"%s","scripts":{"prepare":"echo bau"}}\n' \
@@ -374,10 +537,15 @@ runAll() {
     testOhneArgumentKommtHilfe
     testStatusMeldetVorhandeneVersion
     testStatusMeldetFreieVersion
-    testUnbekanntesPaketGiltAlsFrei
+    testUnbekanntesPaketIstNichtSicherFrei
+    testUnlesbareAntwortIstNichtFrei
     testStatusWirdBeiUnbekanntemZustandNichtGruen
-    testReichtStdoutDurch
+    testStdoutErreichtDenAufrufer
+    testPublishLaeuftUnterEchtemTty
     testWeitereArgumenteGehenAnNpm
+    testRegistryOverrideGiltFuerAlleSchritte
+    testScopeRegistryWirdAbgelehnt
+    testWorkspaceWirdAbgelehnt
     testEchterE409WirdWiederholt
     testFremder409LoestKeineWiederholungAus
     testErfolgTrotzFehlerWirdErkannt
