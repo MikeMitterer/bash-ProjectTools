@@ -106,26 +106,33 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | Script | Zweck | Config |
 |---|---|---|
 | `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |
-| `src/bash/npm-login.sh` | Anmeldung am passenden npm-Registry sicherstellen — meldet an, falls nötig | — |
+| `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
 
-Nicht jedes Script gehört in `make status`. `npm-login.sh` wird dort
-vorgeschaltet, wo eine Anmeldung gebraucht wird — veröffentlichen, private
-Abhängigkeiten installieren, CI:
+Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
+`npm publish` überall dort, wo veröffentlicht wird:
 
 ```makefile
 publish: ##R Paket veröffentlichen  [CONFIRM=yes]
 	@test "$(CONFIRM)" = "yes" || \
 	  (echo "${ORANGE}Sicherheitscheck: make $@ CONFIRM=yes${NC}" && exit 1)
-	@bash $(PROJECT_TOOLS)/bash/npm-login.sh --ensure
-	@npm publish
+	@bash $(PROJECT_TOOLS)/bash/npm-publish.sh --publish
 ```
 
-Der Grund für dieses Script ist eine Falle, die man genau einmal selbst sucht:
-Ist niemand angemeldet, antwortet die Registry bei einem **privaten** Paket mit
-`404 Not Found` statt `401` — sie verrät dessen Existenz nicht. Die Meldung
-zeigt dann auf den Paketnamen, und man prüft Scope, Schreibweise und
-`publishConfig`, während bloß der Token abgelaufen ist.
+Es räumt drei Fallen ab, die man sonst je einmal selbst sucht:
 
-`--ensure` meldet an, falls nötig; `--status` berichtet nur und taugt für CI,
-wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
+1. **Niemand angemeldet.** Die Registry antwortet bei einem **privaten** Paket
+   mit `404 Not Found` statt `401` — sie verrät dessen Existenz nicht. Die
+   Meldung zeigt dann auf den Paketnamen, und man prüft Scope, Schreibweise und
+   `publishConfig`, während bloß der Token abgelaufen ist.
+2. **Die Version liegt schon oben.** Wird vorher beantwortet und ungecacht
+   gelesen, statt hinterher aus einer Fehlermeldung erraten.
+3. **`409 Conflict — Failed to save packument`.** Registry-seitig und meist
+   vorübergehend; der mitgelieferte Erklärungstext passt fast nie. Das Script
+   sieht nach, ob das Paket trotz des Fehlers oben liegt, und versucht es sonst
+   erneut. **Nur bei `409`** — bei `401`, `402` oder `403` bricht es sofort ab,
+   dort ändert ein zweiter Versuch nichts.
+
+`--publish` ist der ganze Vorgang; `--ensure` stellt nur die Anmeldung sicher
+(private Abhängigkeiten installieren, CI); `--status` berichtet nur und taugt
+dort, wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
 `publishConfig.registry` schlägt die Scope-Einstellung, diese die globale.
