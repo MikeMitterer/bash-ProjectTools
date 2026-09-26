@@ -214,12 +214,29 @@ def prepare_readme(source: str, repository: str, ref: str, base: str = "") -> st
     return rendered
 
 
-def checked_response(response: httpx.Response) -> dict:
-    """Zeigt bei Fehlern nur Statuscodes, niemals den fremden Antwortkörper."""
-    if not response.is_success:
-        raise UploadError(
-            _("Docker Hub returned HTTP {status}.").format(status=response.status_code)
+def check_status(response: httpx.Response, step: str) -> None:
+    """Meldet den API-Schritt, ohne Header oder Antwortkörper offenzulegen.
+
+    Args:
+        response: Antwort von Docker Hub.
+        step: Übersetzte, vom Aufrufer festgelegte Operation.
+    """
+    if response.is_success:
+        return
+    message = _("Docker Hub returned HTTP {status} during {step}.").format(
+        status=response.status_code, step=step
+    )
+    if response.status_code == 403:
+        message += " " + _(
+            "Check the login user, repository access and token permissions "
+            "(Read, Write, Delete for description updates)."
         )
+    raise UploadError(message)
+
+
+def checked_response(response: httpx.Response, step: str) -> dict:
+    """Prüft HTTP-Status und JSON, ohne fremde Antwortkörper auszugeben."""
+    check_status(response, step)
     try:
         payload = response.json()
     except ValueError:
@@ -246,7 +263,8 @@ def publish(
             raise UploadError(_("Short description exceeds 100 bytes."))
         payload["description"] = description
     auth = checked_response(
-        client.post(f"{HUB_URL}/v2/auth/token", json={"identifier": username, "secret": secret})
+        client.post(f"{HUB_URL}/v2/auth/token", json={"identifier": username, "secret": secret}),
+        _("authentication (POST /v2/auth/token)"),
     )
     token = auth.get("access_token")
     if not isinstance(token, str) or not token:
@@ -254,11 +272,8 @@ def publish(
     headers = {"Authorization": f"Bearer {token}"}
     endpoint = f"{HUB_URL}/v2/repositories/{repository}/"
     response = client.patch(endpoint, json=payload, headers=headers)
-    if not response.is_success:
-        raise UploadError(
-            _("Docker Hub returned HTTP {status}.").format(status=response.status_code)
-        )
-    saved = checked_response(client.get(endpoint, headers=headers))
+    check_status(response, _("description update (PATCH)"))
+    saved = checked_response(client.get(endpoint, headers=headers), _("verification (GET)"))
     if any(saved.get(key) != value for key, value in payload.items()):
         raise UploadError(_("Docker Hub readback differs from the uploaded description."))
 

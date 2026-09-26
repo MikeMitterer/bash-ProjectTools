@@ -155,3 +155,18 @@ msgstr "Widersprüchliche Docker-Image-Einstellungen. Setze --repository ausdrü
 
 msgid "No unambiguous Docker Hub repository found. Set --repository namespace/name."
 msgstr "Kein eindeutiges Docker-Hub-Repository gefunden. Setze --repository namespace/name."
+
+msgid "Docker Hub returned HTTP {status} during {step}."
+msgstr "Docker Hub antwortet bei {step} mit HTTP {status}."
+
+msgid "Check the login user, repository access and token permissions (Read, Write, Delete for description updates)."
+msgstr "Prüfe den Login-Benutzer, den Repository-Zugriff und die Token-Rechte (Read, Write, Delete für Beschreibungsänderungen)."
+
+msgid "authentication (POST /v2/auth/token)"
+msgstr "der Anmeldung (POST /v2/auth/token)"
+
+msgid "description update (PATCH)"
+msgstr "der Beschreibungsänderung (PATCH)"
+
+msgid "verification (GET)"
+msgstr "der Kontrolle durch Rücklesen (GET)"

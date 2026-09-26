@@ -172,3 +172,22 @@ def test_cli_zu_langes_readme_verweist_auf_projektregeln(tmp_path: Path) -> None
     assert result.returncode == 1
     assert "25000" in result.stderr and "AGENTS.md" in result.stderr
     assert not (tmp_path / "docker/preview/README.md").exists()
+
+
+@pytest.mark.parametrize("failure", ["POST", "PATCH", "GET"])
+def test_http_fehler_nennt_schritt_ohne_geheimnisse(failure: str) -> None:
+    """Derselbe Status muss Anmeldung, Schreiben und Rücklesen unterscheiden."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == failure:
+            return httpx.Response(403, text="private-token")
+        return httpx.Response(200, json={"access_token": "private-token"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(upload.UploadError) as caught:
+            upload.publish(client, "expected", "owner/repo", "user", "private-token", None)
+    message = str(caught.value)
+    assert failure in message and "403" in message
+    assert "private-token" not in message
+    if failure == "PATCH":
+        assert "Read, Write, Delete" in message
