@@ -83,3 +83,36 @@ msgstr "Quell-README, relativ zum Projektverzeichnis."
 
 msgid "GitHub owner/repository; defaults to origin."
 msgstr "GitHub owner/repository; Vorgabe aus origin."
+
+msgid "Pandoc is missing. Install it from https://pandoc.org/installing.html."
+msgstr "Pandoc fehlt. Installiere es über https://pandoc.org/installing.html."
+
+msgid "The project directory does not exist. Check --project-dir."
+msgstr "Das Projektverzeichnis fehlt. Prüfe --project-dir."
+
+msgid "Could not create .venv. Check Python's venv support and directory permissions."
+msgstr "Die .venv konnte nicht angelegt werden. Prüfe die venv-Unterstützung von Python und die Verzeichnisrechte."
+
+msgid "The tool .venv must be a working virtual environment with Python 3.11 or newer."
+msgstr "Die Werkzeug-.venv muss eine funktionsfähige virtuelle Umgebung mit Python 3.11 oder neuer sein."
+
+msgid "Could not install the README dependencies in .venv. Check pip and package-index access."
+msgstr "Die README-Abhängigkeiten konnten nicht in .venv installiert werden. Prüfe pip und den Zugriff auf den Paketindex."
+
+msgid "Start this tool through ProjectTools/src/bash/dockerhub-readme.sh to prepare .venv."
+msgstr "Starte das Werkzeug über ProjectTools/src/bash/dockerhub-readme.sh, damit .venv eingerichtet wird."
+
+msgid "The README must be inside the project directory."
+msgstr "Das README muss im Projektverzeichnis liegen."
+
+msgid "README is missing or unreadable. Check --project-dir and --readme."
+msgstr "Das README fehlt oder ist nicht lesbar. Prüfe --project-dir und --readme."
+
+msgid "Docker Hub token file is missing or unreadable. Set --token-file or DOCKER_PW_FILE."
+msgstr "Die Docker-Hub-Token-Datei fehlt oder ist nicht lesbar. Setze --token-file oder DOCKER_PW_FILE."
+
+msgid "Python 3.11 or newer is required. Set PYTHON_BOOTSTRAP to a suitable interpreter."
+msgstr "Python 3.11 oder neuer ist erforderlich. Setze PYTHON_BOOTSTRAP auf einen passenden Interpreter."
+
+msgid "The tool environment must not be a symlink. Check the ProjectTools cache directory."
+msgstr "Die Werkzeugumgebung darf kein Symlink sein. Prüfe das ProjectTools-Cacheverzeichnis."

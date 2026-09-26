@@ -106,7 +106,7 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | Script | Zweck | Config |
 |---|---|---|
 | `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |
-| `src/python/dockerhub-readme.py` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
+| `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
 | `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
 
 Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
@@ -177,17 +177,25 @@ korrektes PTY — kehrt auf macOS aber nach dem Kindprozess nicht aus seiner
 Kopierschleife zurück und hängt den Testlauf auf.
 
 
-### `dockerhub-readme.py` — README nach Docker Hub übertragen
+### `dockerhub-readme.sh` — README nach Docker Hub übertragen
 
-`src/python/dockerhub-readme.py` konvertiert relative Markdown-Bild- und
+`src/bash/dockerhub-readme.sh` bereitet seine eigene `.venv` vor und startet
+`src/python/dockerhub-readme.py`. Das Python-Script konvertiert relative Markdown-Bild- und
 Dokumentlinks in absolute GitHub-URLs und aktualisiert die Repository-Übersicht.
-Aufruf aus dem Verbraucherprojekt mit dessen `.venv` (Python 3.11+, `httpx`)
-und installiertem Pandoc. Ohne Argumente erscheint die Hilfe.
+Python 3.11+ und Pandoc müssen vorhanden sein. Der Bash-Einstieg legt
+`${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/dockerhub-readme/.venv`
+bei Bedarf an und installiert fehlende Pakete gemäß
+`src/python/dockerhub-readme.requirements.txt`; fehlendes pip ergänzt er über
+ensurepip. Passende Umgebungen werden ohne Installation wiederverwendet.
+`PYTHON_BOOTSTRAP` überschreibt die automatische Auswahl eines installierten
+Python ab 3.11. Die Projekt-`.venv` bleibt unberührt; Symlinks am Werkzeug-
+verzeichnis oder an dessen `.venv` sind gesperrt. Ohne Argumente
+erscheint die Hilfe, ohne die Umgebung zu verändern.
 
 ```bash
-.venv/bin/python .libs/ProjectTools/src/python/dockerhub-readme.py \
+./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
   --preview --ref main
-.venv/bin/python .libs/ProjectTools/src/python/dockerhub-readme.py \
+./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
   --publish --ref main --repository namespace/project
 ```
 
@@ -199,7 +207,8 @@ Auch Links aus READMEs in Unterverzeichnissen werden relativ zur Quelldatei
 aufgelöst. Raw-HTML-Links werden nicht umgeschrieben; dafür absolute URLs verwenden.
 
 Die Vorschau schreibt `README.dockerhub.md` ins Verbraucherprojekt;
-`--output` überschreibt den Pfad. Sie benötigt weder Token noch Netzwerk.
+`--output` überschreibt den Pfad. Sie benötigt keinen Docker-Hub-Token; die erstmalige Paketinstallation kann
+Netz benötigen.
 Der Upload liest den Token aus `--token-file`, sonst `DOCKER_PW_FILE`, sonst
 `${DOCKER_CONFIG:-$HOME/.docker}/dockerhub.sec`. Der Docker-Hub-Benutzer ist
 standardmäßig der Namespace; für Organisationen `--username` angeben.
@@ -209,7 +218,9 @@ protokolliert oder als Prozessargumente weitergereicht.
 
 `--description` setzt optional die Kurzbeschreibung. Sonst bleibt sie erhalten.
 Nach dem Upload liest das Script die gespeicherten Werte zur Kontrolle zurück.
-Die konvertierte Fassung darf höchstens 25.000 UTF-8-Bytes umfassen. Bei
+Vor venv/pip prüft das Script das lesbare README und bei `--publish` zusätzlich
+die lesbare, nicht leere Token-Datei. Gültigkeit und Schreibrechte bestätigt
+erst Docker Hub beim Auth-/PATCH-Aufruf. Die konvertierte Fassung darf höchstens 25.000 UTF-8-Bytes umfassen. Bei
 Überschreitung endet schon die Vorschau mit Fehler; es wird nichts abgeschnitten.
 Markdown wird mit Pandoc neu formatiert; das Quell-README bleibt unverändert.
 
@@ -218,6 +229,8 @@ auf und übernimmt den Exit-Code. Andere Registries überspringen den Aufruf.
 `DOCKER_README_AFTER_PUSH=1` ergänzt bei einem Uploadfehler den Hinweis, dass
 das Image bereits veröffentlicht wurde. Der Upload kann separat wiederholt werden.
 
-Tests: `<verbraucher>/.venv/bin/python -m pytest tests/python/test_dockerhub_readme.py`.
+Tests: `<verbraucher>/.venv/bin/python -m pytest tests/python/`.
+Die Bootstrap-Tests installieren in echte temporäre venvs. Für Offline-Tests
+vorher Wheels herunterladen und `PIP_NO_INDEX=1 PIP_FIND_LINKS=<wheel-ordner>` setzen.
 Deutscher gettext-Katalog: `src/python/locales/de/LC_MESSAGES/dockerhub_readme.po`;
 nach Textänderungen mit `msgfmt <datei.po> -o <datei.mo>` neu übersetzen.

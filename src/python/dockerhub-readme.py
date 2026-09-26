@@ -5,13 +5,14 @@
 # Pandoc erhält die Markdown-Struktur. Zugangsdaten werden nur beim Upload
 # aus der lokalen Datei gelesen und ausschließlich an Docker Hub gesendet.
 #
-# Verwendung (Python aus der Projekt-.venv):
-#   .venv/bin/python .libs/ProjectTools/src/python/dockerhub-readme.py --preview --ref main
-#   .venv/bin/python .libs/ProjectTools/src/python/dockerhub-readme.py \
-#     --publish --ref main -r namespace/project
+# Verwendung (öffentlicher Bash-Einstieg richtet die Werkzeugumgebung ein):
+#   .libs/ProjectTools/src/bash/dockerhub-readme.sh --preview --ref master
+#   .libs/ProjectTools/src/bash/dockerhub-readme.sh --publish --ref master -r user/repo
 #   make push
 # ------------------------------------------------------------------------------
 """Lokaler Veröffentlichungsweg für die Docker-Hub-Repository-Übersicht."""
+
+from __future__ import annotations
 
 import argparse
 import gettext
@@ -22,9 +23,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
 
-import httpx
+if TYPE_CHECKING:
+    import httpx
 
 _ = gettext.translation(
     "dockerhub_readme", localedir=Path(__file__).parent / "locales", fallback=True
@@ -246,12 +249,61 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
     return options
 
 
+def report_error(message: str) -> None:
+    """Ein Fehlertext für Python und Bash, einschließlich vorherigem Image-Push."""
+    print(message, file=sys.stderr)
+    if os.environ.get("DOCKER_README_AFTER_PUSH") == "1":
+        print(
+            _("The image was already pushed. Retry the README upload separately."), file=sys.stderr
+        )
+
+
+def validate_inputs(options: argparse.Namespace) -> Path:
+    """Lokale Eingaben vor Umgebungseinrichtung oder Netzaufrufen prüfen."""
+    project = options.project_dir.resolve()
+    if not project.is_dir():
+        raise UploadError(_("The project directory does not exist. Check --project-dir."))
+    source = (project / options.readme).resolve()
+    if not source.is_relative_to(project):
+        raise UploadError(_("The README must be inside the project directory."))
+    try:
+        source.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        raise UploadError(
+            _("README is missing or unreadable. Check --project-dir and --readme.")
+        ) from None
+    if options.publish:
+        try:
+            secret = options.token_file.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError):
+            raise UploadError(
+                _(
+                    "Docker Hub token file is missing or unreadable. "
+                    "Set --token-file or DOCKER_PW_FILE."
+                )
+            ) from None
+        if not secret:
+            raise UploadError(_("The token file is empty."))
+    return source
+
+
 def main(arguments: list[str]) -> int:
     """Die CLI gibt ausschließlich kontrollierte Fehlertexte aus."""
     options = parse_args(arguments)
     try:
+        source_path = validate_inputs(options)
+    except UploadError as error:
+        report_error(str(error))
+        return 1
+    try:
+        import httpx
+    except ModuleNotFoundError:
+        report_error(
+            _("Start this tool through ProjectTools/src/bash/dockerhub-readme.sh to prepare .venv.")
+        )
+        return 1
+    try:
         project = options.project_dir.resolve()
-        source_path = (project / options.readme).resolve()
         base = source_path.relative_to(project).parent.as_posix()
         repository = options.github_repository or github_repository(project)
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
@@ -286,18 +338,12 @@ def main(arguments: list[str]) -> int:
         )
         return 0
     except UploadError as error:
-        print(str(error), file=sys.stderr)
+        report_error(str(error))
     except (OSError, subprocess.SubprocessError, httpx.HTTPError, ValueError) as error:
-        print(
+        report_error(
             _("Operation failed ({kind}); check Pandoc, the token file and connectivity.").format(
                 kind=type(error).__name__
-            ),
-            file=sys.stderr,
-        )
-    if options.publish and os.environ.get("DOCKER_README_AFTER_PUSH") == "1":
-        print(
-            _("The image was already pushed. Retry the README upload separately."),
-            file=sys.stderr,
+            )
         )
     return 1
 
