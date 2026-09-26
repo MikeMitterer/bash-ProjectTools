@@ -593,6 +593,7 @@ def main(arguments: list[str]) -> int:
                 repository=styled(options.repository, "YELLOW")
             )
         )
+        print("  " + styled(f"{HUB_URL}/r/{options.repository}", "YELLOW"))
         return 0
     except UploadError as error:
         report_error(str(error))

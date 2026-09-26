@@ -229,6 +229,8 @@ protokolliert oder als Prozessargumente weitergereicht.
 
 `--description` setzt optional die Kurzbeschreibung. Sonst bleibt sie erhalten.
 Nach dem Upload liest das Script die gespeicherten Werte zur Kontrolle zurück.
+Nach erfolgreicher Kontrolle zeigt es die vollständige Repository-URL,
+z. B. `https://hub.docker.com/r/mangolila/stockinfo`, zum Öffnen im Browser.
 Vor venv/pip prüft das Script das lesbare README und bei `--publish` zusätzlich
 die lesbare, nicht leere Token-Datei. Gültigkeit und Schreibrechte bestätigt
 erst Docker Hub beim Auth-/PATCH-Aufruf. Die konvertierte Fassung darf höchstens 25.000 UTF-8-Bytes umfassen. Bei
