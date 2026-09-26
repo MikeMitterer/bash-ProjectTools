@@ -200,9 +200,13 @@ erscheint die Hilfe, ohne die Umgebung zu verändern.
 ```
 
 `--project-dir` wählt das Verbraucherprojekt (Vorgabe: Arbeitsverzeichnis),
-`--readme` dessen Quelldatei (Vorgabe: `README.md`). `--ref` nennt einen bereits veröffentlichten GitHub-Branch oder Commit;
+`--readme` dessen Quelldatei (Vorgabe: `docker/README.md`). `--ref` nennt einen bereits veröffentlichten GitHub-Branch oder Commit;
 Vorgabe ist `master`.
 `--github-repository owner/repository` überschreibt die Ermittlung aus `origin`.
+Die Quelle ist eine eigene Beschreibung für Container-Nutzer. Fehlt sie, bricht
+das Script ab; es fällt nicht auf das Projekt-README zurück. Für eine andere
+Quelle `--readme` verwenden. Bilder etwa mit `../images/example.png` relativ
+zu `docker/README.md` verlinken; sie werden aus dem GitHub-Repository geladen.
 Auch Links aus READMEs in Unterverzeichnissen werden relativ zur Quelldatei
 aufgelöst. Raw-HTML-Links werden nicht umgeschrieben; dafür absolute URLs verwenden.
 

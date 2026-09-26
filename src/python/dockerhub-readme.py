@@ -367,7 +367,7 @@ def add_file_options(parser: argparse.ArgumentParser) -> None:
         "-s",
         "--readme",
         type=Path,
-        default=Path("README.md"),
+        default=Path("docker/README.md"),
         metavar="FILE",
         help=_("Source README, relative to the project root."),
     )

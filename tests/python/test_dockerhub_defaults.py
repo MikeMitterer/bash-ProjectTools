@@ -52,7 +52,8 @@ def test_widerspruch_benoetigt_explizites_ziel(tmp_path, monkeypatch):
     monkeypatch.setenv("IMAGE_NAME", "other/project")
     with pytest.raises(upload.UploadError, match="--repository"):
         upload.discover_repository(tmp_path)
-    (tmp_path / "README.md").write_text("# Test\n")
+    (tmp_path / "docker").mkdir(exist_ok=True)
+    (tmp_path / "docker/README.md").write_text("# Test\n")
     token = tmp_path / "token"
     token.write_text("fake-test-token")
     options = upload.parse_args(
@@ -72,5 +73,18 @@ def test_widerspruch_benoetigt_explizites_ziel(tmp_path, monkeypatch):
 
 def test_vorgaben_fuer_branch_und_vorschau():
     options = upload.parse_args(["--preview"])
+    assert options.readme == Path("docker/README.md")
     assert options.ref == "master"
     assert options.output == Path("docker/preview/README.md")
+
+
+def test_fehlende_docker_beschreibung_verwendet_nicht_projekt_readme(tmp_path):
+    """Die separate Quelle ist Pflicht; Projektanleitungen dürfen nicht publiziert werden."""
+    (tmp_path / "README.md").write_text("# Development instructions")
+    options = upload.parse_args(["--preview", "--project-dir", str(tmp_path)])
+    with pytest.raises(upload.UploadError, match="README"):
+        upload.validate_inputs(options)
+    options = upload.parse_args(
+        ["--preview", "--project-dir", str(tmp_path), "--readme", "README.md"]
+    )
+    assert upload.validate_inputs(options) == tmp_path / "README.md"

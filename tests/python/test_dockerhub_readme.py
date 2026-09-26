@@ -152,7 +152,8 @@ def test_origin_wird_aus_dem_verbraucherprojekt_gelesen(tmp_path: Path) -> None:
 
 
 def test_cli_zu_langes_readme_verweist_auf_projektregeln(tmp_path: Path) -> None:
-    (tmp_path / "README.md").write_text("ä" * 12501, encoding="utf-8")
+    (tmp_path / "docker").mkdir(exist_ok=True)
+    (tmp_path / "docker/README.md").write_text("ä" * 12501, encoding="utf-8")
     result = subprocess.run(
         [
             sys.executable,

@@ -50,7 +50,8 @@ def test_bash_richtet_echte_venv_ein_und_verwendet_sie_erneut(
     """PIP_FIND_LINKS/PIP_NO_INDEX erlauben dieselbe Installation mit lokalen Wheels."""
     project = tmp_path / "consumer with spaces"
     project.mkdir()
-    (project / "README.md").write_text("# Demo\n\n![Bild](images/demo.png)\n")
+    (project / "docker").mkdir(exist_ok=True)
+    (project / "docker/README.md").write_text("# Demo\n\n![Bild](../images/demo.png)\n")
     runtime = tmp_path / "cache/projecttools/dockerhub-readme/.venv/bin/python"
     # Bestehende Projektumgebung darf weder ausgeführt noch umgebaut werden.
     project_python = project / ".venv/bin/python"
@@ -107,7 +108,8 @@ def test_bash_richtet_echte_venv_ein_und_verwendet_sie_erneut(
 
 
 def test_paketfehler_stoppt_vor_der_eigentlichen_aktion(tmp_path: Path) -> None:
-    (tmp_path / "README.md").write_text("# Demo")
+    (tmp_path / "docker").mkdir(exist_ok=True)
+    (tmp_path / "docker/README.md").write_text("# Demo")
     result = subprocess.run(
         [
             str(SCRIPT),
@@ -141,7 +143,8 @@ def test_paketfehler_stoppt_vor_der_eigentlichen_aktion(tmp_path: Path) -> None:
     ["readme-missing", "readme-directory", "token-missing", "token-directory", "token-empty"],
 )
 def test_fehlende_eingaben_stoppen_vor_venv_und_upload(tmp_path: Path, failure: str) -> None:
-    source = tmp_path / "README.md"
+    source = tmp_path / "docker/README.md"
+    source.parent.mkdir()
     token = tmp_path / "token"
     if failure == "readme-directory":
         source.mkdir()
@@ -181,7 +184,8 @@ def test_fehlende_eingaben_stoppen_vor_venv_und_upload(tmp_path: Path, failure: 
 
 
 def test_symlink_auf_fremde_venv_wird_nicht_verwendet(tmp_path: Path) -> None:
-    (tmp_path / "README.md").write_text("# Demo")
+    (tmp_path / "docker").mkdir(exist_ok=True)
+    (tmp_path / "docker/README.md").write_text("# Demo")
     runtime = tmp_path / "cache/projecttools/dockerhub-readme/.venv"
     runtime.parent.mkdir(parents=True)
     project_venv = tmp_path / ".venv"

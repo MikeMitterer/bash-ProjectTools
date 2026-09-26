@@ -65,7 +65,7 @@ def test_terminal_hilfe_hat_feste_spalten_und_beispiele(tmp_path: Path, no_color
     assert {line.index("--") for line in rows} == {7}
     assert "dockerhub-readme.sh --preview" in " ".join(text.split())
     assert "Vorgabe: master." in " ".join(text.split())
-    assert "Vorgabe: README.md." in " ".join(text.split())
+    assert "Vorgabe: docker/README.md." in " ".join(text.split())
     assert not (tmp_path / "projecttools").exists()
 
 
