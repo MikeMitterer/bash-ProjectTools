@@ -20,6 +20,7 @@ import json
 import os
 import posixpath
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -50,13 +51,33 @@ def styled(text: str, color: str, stream: TextIO = sys.stdout) -> str:
     """
     if "NO_COLOR" in os.environ or not stream.isatty() or os.environ.get("TERM") == "dumb":
         return text
-    defaults = {"BLUE": "34", "LIGHT_BLUE": "96", "YELLOW": "33", "GREEN": "32", "RED": "31"}
+    defaults = {
+        "BLUE": "34",
+        "LIGHT_BLUE": "96",
+        "YELLOW": "33",
+        "GREEN": "32",
+        "RED": "31",
+    }
     prefix = os.environ.get(f"PROJECTTOOLS_COLOR_{color}", f"\033[{defaults[color]}m")
     return f"{prefix}{text}\033[0m"
 
 
 class ScriptHelpFormatter(argparse.RawDescriptionHelpFormatter):
     """Native argparse-Hilfe mit festen Spalten für Kurz- und Langoptionen."""
+
+    def _get_help_string(self, action: argparse.Action) -> str:
+        """Ergänzt wirksame Standardwerte aus der Parserdeklaration.
+
+        Args:
+            action: Native Parser-Aktion mit optionalem Standardwert.
+
+        Returns:
+            Übersetzter Hilfetext einschließlich vorhandener Vorgabe.
+        """
+        text = action.help or ""
+        if action.default not in (None, False, argparse.SUPPRESS) and not action.required:
+            text += " " + _("Default: %(default)s.")
+        return text
 
     def _format_action_invocation(self, action: argparse.Action) -> str:
         """Formatiert die vom Parser deklarierte Option, ohne zweite Optionsliste.
@@ -87,7 +108,7 @@ class ScriptArgumentParser(argparse.ArgumentParser):
         """
         lines = super().format_help().splitlines()
         for index, line in enumerate(lines):
-            if line.endswith(":"):
+            if line.endswith(":") and not line.startswith(" "):
                 lines[index] = styled(line, "LIGHT_BLUE")
             elif " | --" in line:
                 match = re.match(r"(\s*)(.*?)(\s{2,}.*|$)", line)
@@ -250,7 +271,10 @@ def add_action_options(parser: argparse.ArgumentParser) -> None:
     """
     actions = parser.add_argument_group(_("Actions")).add_mutually_exclusive_group(required=True)
     actions.add_argument(
-        "-n", "--preview", action="store_true", help=_("Write a preview without Docker Hub access.")
+        "-n",
+        "--preview",
+        action="store_true",
+        help=_("Write a preview without Docker Hub access."),
     )
     actions.add_argument(
         "-p",
@@ -271,7 +295,7 @@ def add_repository_options(parser: argparse.ArgumentParser) -> None:
         "-r",
         "--repository",
         metavar="NAME",
-        help=_("Docker Hub namespace/name; required for publication."),
+        help=_("Docker Hub namespace/name; detected from project settings."),
     )
     group.add_argument(
         "-u",
@@ -282,9 +306,9 @@ def add_repository_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "-b",
         "--ref",
-        required=True,
+        default="master",
         metavar="REF",
-        help=_("Published GitHub branch or commit for links (required)."),
+        help=_("Published GitHub branch or commit for links."),
     )
     group.add_argument(
         "-g",
@@ -336,7 +360,7 @@ def add_file_options(parser: argparse.ArgumentParser) -> None:
         "-o",
         "--output",
         type=Path,
-        default=Path("README.dockerhub.md"),
+        default=Path("docker/preview/README.md"),
         metavar="FILE",
         help=_("Preview file; never the source README."),
     )
@@ -373,13 +397,8 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
     parser.add_argument_group(_("Help")).add_argument(
         "-h", "--help", action="help", help=_("Show this help and exit.")
     )
-    parser.epilog = (
-        _("Hints:") + f"\n  {APPNAME} --preview --ref master\n"
-        f"  {APPNAME} --publish --ref master -r namespace/project"
-    )
+    parser.epilog = _("Hints:") + f"\n  {APPNAME} --preview\n  {APPNAME} --publish"
     options = parser.parse_args(arguments or ["--help"])
-    if options.publish and not options.repository:
-        parser.error(_("--publish requires --repository."))
     return options
 
 
@@ -388,8 +407,85 @@ def report_error(message: str) -> None:
     print("  " + styled("✗ " + message, "RED", sys.stderr), file=sys.stderr)
     if os.environ.get("DOCKER_README_AFTER_PUSH") == "1":
         print(
-            _("The image was already pushed. Retry the README upload separately."), file=sys.stderr
+            _("The image was already pushed. Retry the README upload separately."),
+            file=sys.stderr,
         )
+
+
+def literal_settings(path: Path, names: set[str]) -> dict[str, str]:
+    """Liest eindeutige literale Zuweisungen, ohne Buildscripts auszuführen.
+
+    Args:
+        path: Vorhandenes Makefile oder Docker-Buildscript.
+        names: Erlaubte Variablennamen.
+
+    Returns:
+        Werte ohne Shell-/Make-Expansion; berechnete Werte bleiben unberücksichtigt.
+    """
+    if not path.is_file():
+        return {}
+    settings: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        match = re.fullmatch(r"(?:readonly |export )?([A-Z_]+)\s*(?:\?=|:=|=)\s*(.*)", line.strip())
+        if not match or match[1] not in names:
+            continue
+        try:
+            values = shlex.split(match[2], comments=True)
+        except ValueError:
+            continue
+        if len(values) == 1 and not any(char in values[0] for char in "$`\\"):
+            if match[1] in settings and settings[match[1]] != values[0]:
+                raise UploadError(
+                    _("Conflicting Docker image settings. Set --repository explicitly.")
+                )
+            settings[match[1]] = values[0]
+    return settings
+
+
+def hub_repository(image: str) -> str:
+    """Normalisiert eine Image-Referenz und weist fremde Registries zurück.
+
+    Args:
+        image: Docker-Hub-Name, optional mit Registry, Tag oder Digest.
+
+    Returns:
+        Repository als namespace/name.
+
+    Raises:
+        UploadError: Wenn kein eindeutiger Docker-Hub-Name vorliegt.
+    """
+    repository = image.removeprefix("docker.io/").removeprefix("index.docker.io/")
+    repository = repository.split("@", 1)[0].split(":", 1)[0]
+    if not re.fullmatch(r"[a-z0-9_-]+/[a-z0-9_.-]+", repository):
+        raise UploadError(
+            _("No unambiguous Docker Hub repository found. Set --repository namespace/name.")
+        )
+    return repository
+
+
+def discover_repository(project: Path) -> str:
+    """Ermittelt das Docker-Hub-Ziel aus vorhandenen Projekteinstellungen.
+
+    Args:
+        project: Wurzel des Verbraucherprojekts.
+
+    Returns:
+        Eindeutiges Docker-Hub-Repository.
+    """
+    configured = os.environ.get("DOCKERHUB_REPOSITORY")
+    if configured:
+        return hub_repository(configured)
+    build = literal_settings(project / "docker/build.sh", {"NAMESPACE", "NAME"})
+    make = literal_settings(project / "Makefile", {"IMAGE_NAME"})
+    images = {value for value in (os.environ.get("IMAGE_NAME"), make.get("IMAGE_NAME")) if value}
+    if build.get("NAMESPACE") and build.get("NAME"):
+        images.add(f"{build['NAMESPACE']}/{build['NAME']}")
+    repositories = {hub_repository(image) for image in images}
+    if len(repositories) != 1:
+        raise UploadError(
+            _("No unambiguous Docker Hub repository found. Set --repository namespace/name.")
+        )
+    return repositories.pop()
 
 
 def validate_inputs(options: argparse.Namespace) -> Path:
@@ -407,6 +503,11 @@ def validate_inputs(options: argparse.Namespace) -> Path:
             _("README is missing or unreadable. Check --project-dir and --readme.")
         ) from None
     if options.publish:
+        options.repository = (
+            hub_repository(options.repository)
+            if options.repository
+            else discover_repository(project)
+        )
         try:
             secret = options.token_file.read_text(encoding="utf-8").strip()
         except (OSError, UnicodeError):

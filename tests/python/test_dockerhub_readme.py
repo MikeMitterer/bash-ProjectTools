@@ -129,7 +129,7 @@ def test_cli_arbeitet_im_angegebenen_projekt(tmp_path: Path, repository: str, re
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    content = (project / "README.dockerhub.md").read_text()
+    content = (project / "docker/preview/README.md").read_text()
     assert f"https://raw.githubusercontent.com/{repository}/{ref}/images/chart.png" in content
     assert f"https://github.com/{repository}/blob/{ref}/docs/guide.md" in content
 
@@ -171,4 +171,4 @@ def test_cli_zu_langes_readme_verweist_auf_projektregeln(tmp_path: Path) -> None
     )
     assert result.returncode == 1
     assert "25000" in result.stderr and "AGENTS.md" in result.stderr
-    assert not (tmp_path / "README.dockerhub.md").exists()
+    assert not (tmp_path / "docker/preview/README.md").exists()

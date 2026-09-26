@@ -36,14 +36,14 @@ msgstr "Schreibe eine Vorschau ohne Netzwerkzugriff oder Zugangsdaten."
 msgid "Upload the README and verify the saved description."
 msgstr "Übertrage das README und prüfe die gespeicherte Beschreibung."
 
-msgid "Docker Hub namespace/name; required for publication."
-msgstr "Docker Hub namespace/name; zum Veröffentlichen erforderlich."
+msgid "Docker Hub namespace/name; detected from project settings."
+msgstr "Docker Hub namespace/name; aus Projekteinstellungen ermittelt."
 
 msgid "Docker Hub user; defaults to the repository namespace."
 msgstr "Docker-Hub-Benutzer; Vorgabe ist der Repository-Namespace."
 
-msgid "Published GitHub branch or commit for links (required)."
-msgstr "Veröffentlichter GitHub-Branch oder Commit für Links (erforderlich)."
+msgid "Published GitHub branch or commit for links."
+msgstr "Veröffentlichter GitHub-Branch oder Commit für Links."
 
 msgid "Preview file; never the source README."
 msgstr "Vorschaudatei; niemals das Quell-README."
@@ -146,3 +146,12 @@ msgstr "README vorbereiten"
 
 msgid "Publish to Docker Hub"
 msgstr "Auf Docker Hub veröffentlichen"
+
+msgid "Default: %(default)s."
+msgstr "Vorgabe: %(default)s."
+
+msgid "Conflicting Docker image settings. Set --repository explicitly."
+msgstr "Widersprüchliche Docker-Image-Einstellungen. Setze --repository ausdrücklich."
+
+msgid "No unambiguous Docker Hub repository found. Set --repository namespace/name."
+msgstr "Kein eindeutiges Docker-Hub-Repository gefunden. Setze --repository namespace/name."

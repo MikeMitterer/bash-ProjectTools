@@ -12,7 +12,7 @@ SCRIPT = ROOT / "src/bash/dockerhub-readme.sh"
 ENGINE = ROOT / "src/python/dockerhub-readme.py"
 
 
-@pytest.mark.parametrize("arguments", [[], ["--help"], ["--preview"]])
+@pytest.mark.parametrize("arguments", [[], ["--help"], ["--unknown"]])
 def test_hilfe_und_argumentfehler_installieren_nichts(tmp_path: Path, arguments: list[str]) -> None:
     result = subprocess.run(
         [str(SCRIPT), *arguments],
@@ -26,7 +26,7 @@ def test_hilfe_und_argumentfehler_installieren_nichts(tmp_path: Path, arguments:
         text=True,
         check=False,
     )
-    assert result.returncode == (2 if arguments == ["--preview"] else 0)
+    assert result.returncode == (2 if arguments == ["--unknown"] else 0)
     assert "Traceback" not in result.stderr
     assert not (tmp_path / ".venv").exists()
     assert not (tmp_path / "cache").exists()
@@ -81,14 +81,12 @@ def test_bash_richtet_echte_venv_ein_und_verwendet_sie_erneut(
         str(project),
         "--github-repository",
         "example/consumer",
-        "--ref",
-        "master",
     ]
     result = subprocess.run(command, cwd=tmp_path, env=environment, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert (
         "https://raw.githubusercontent.com/example/consumer/master/images/demo.png"
-        in (project / "README.dockerhub.md").read_text()
+        in (project / "docker/preview/README.md").read_text()
     )
     subprocess.run(
         [str(runtime), "-c", "import httpx; assert httpx.__version__ == '0.28.1'"], check=True
@@ -135,7 +133,7 @@ def test_paketfehler_stoppt_vor_der_eigentlichen_aktion(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "Abhängigkeiten" in result.stderr and "pip" in result.stderr
     assert "Traceback" not in result.stderr
-    assert not (tmp_path / "README.dockerhub.md").exists()
+    assert not (tmp_path / "docker/preview/README.md").exists()
 
 
 @pytest.mark.parametrize(

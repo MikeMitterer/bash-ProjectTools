@@ -194,19 +194,26 @@ erscheint die Hilfe, ohne die Umgebung zu verändern.
 
 ```bash
 ./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
-  --preview --ref main
+  --preview
 ./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
-  --publish --ref main --repository namespace/project
+  --publish
 ```
 
 `--project-dir` wählt das Verbraucherprojekt (Vorgabe: Arbeitsverzeichnis),
-`--readme` dessen Quelldatei (Vorgabe: `README.md`). `--ref` ist erforderlich
-und nennt einen bereits veröffentlichten GitHub-Branch oder Commit.
+`--readme` dessen Quelldatei (Vorgabe: `README.md`). `--ref` nennt einen bereits veröffentlichten GitHub-Branch oder Commit;
+Vorgabe ist `master`.
 `--github-repository owner/repository` überschreibt die Ermittlung aus `origin`.
 Auch Links aus READMEs in Unterverzeichnissen werden relativ zur Quelldatei
 aufgelöst. Raw-HTML-Links werden nicht umgeschrieben; dafür absolute URLs verwenden.
 
-Die Vorschau schreibt `README.dockerhub.md` ins Verbraucherprojekt;
+Das Docker-Hub-Ziel wird aus `DOCKERHUB_REPOSITORY`, sonst aus `IMAGE_NAME`
+(Umgebung/Makefile) und `NAMESPACE` + `NAME` in `docker/build.sh` ermittelt.
+Es werden nur literale Zuweisungen gelesen; kein Buildscript wird ausgeführt.
+Widersprüchliche oder fehlende Werte erfordern `--repository namespace/name`.
+Dieser explizite Parameter hat Vorrang. Tags und Docker-Hub-Registrypräfixe
+werden entfernt; fremde Registries werden abgewiesen.
+
+Die Vorschau schreibt `docker/preview/README.md` ins Verbraucherprojekt;
 `--output` überschreibt den Pfad. Sie benötigt keinen Docker-Hub-Token; die erstmalige Paketinstallation kann
 Netz benötigen.
 Der Upload liest den Token aus `--token-file`, sonst `DOCKER_PW_FILE`, sonst
