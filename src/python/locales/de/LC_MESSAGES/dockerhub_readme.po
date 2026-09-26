@@ -116,3 +116,33 @@ msgstr "Python 3.11 oder neuer ist erforderlich. Setze PYTHON_BOOTSTRAP auf eine
 
 msgid "The tool environment must not be a symlink. Check the ProjectTools cache directory."
 msgstr "Die Werkzeugumgebung darf kein Symlink sein. Prüfe das ProjectTools-Cacheverzeichnis."
+
+msgid "Actions"
+msgstr "Aktionen"
+
+msgid "Repository"
+msgstr "Repository"
+
+msgid "Files"
+msgstr "Dateien"
+
+msgid "Help"
+msgstr "Hilfe"
+
+msgid "Hints:"
+msgstr "Beispiele:"
+
+msgid "Show this help and exit."
+msgstr "Zeige diese Hilfe und beende das Script."
+
+msgid "%(prog)s [options]"
+msgstr "%(prog)s [Optionen]"
+
+msgid "Write a preview without Docker Hub access."
+msgstr "Schreibe eine Vorschau ohne Docker-Hub-Zugriff."
+
+msgid "Prepare README"
+msgstr "README vorbereiten"
+
+msgid "Publish to Docker Hub"
+msgstr "Auf Docker Hub veröffentlichen"

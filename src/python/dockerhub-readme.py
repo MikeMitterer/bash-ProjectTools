@@ -23,7 +23,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 from urllib.parse import quote, urlsplit, urlunsplit
 
 if TYPE_CHECKING:
@@ -34,6 +34,81 @@ _ = gettext.translation(
 ).gettext
 HUB_URL = "https://hub.docker.com"
 README_LIMIT = 25_000
+APPNAME = os.environ.get("PROJECTTOOLS_APPNAME", Path(__file__).name)
+
+
+def styled(text: str, color: str, stream: TextIO = sys.stdout) -> str:
+    """Färbt Text nur im Terminal, mit BashLib-Palette und NO_COLOR-Unterstützung.
+
+    Args:
+        text: Sichtbarer Text ohne ANSI-Sequenzen.
+        color: Farbname aus der BashLib-Palette.
+        stream: Zielausgabe zur Terminalerkennung.
+
+    Returns:
+        Farbiger oder unveränderter Text.
+    """
+    if "NO_COLOR" in os.environ or not stream.isatty() or os.environ.get("TERM") == "dumb":
+        return text
+    defaults = {"BLUE": "34", "LIGHT_BLUE": "96", "YELLOW": "33", "GREEN": "32", "RED": "31"}
+    prefix = os.environ.get(f"PROJECTTOOLS_COLOR_{color}", f"\033[{defaults[color]}m")
+    return f"{prefix}{text}\033[0m"
+
+
+class ScriptHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Native argparse-Hilfe mit festen Spalten für Kurz- und Langoptionen."""
+
+    def _format_action_invocation(self, action: argparse.Action) -> str:
+        """Formatiert die vom Parser deklarierte Option, ohne zweite Optionsliste.
+
+        Args:
+            action: Native Parser-Aktion.
+
+        Returns:
+            Kurzoption, Trennzeichen, Langoption und optionaler Platzhalter.
+        """
+        if not action.option_strings:
+            return super()._format_action_invocation(action)
+        short, long = action.option_strings
+        label = f"{short:2} | {long}"
+        if action.nargs != 0:
+            label += " " + self._format_args(action, action.metavar or action.dest.upper())
+        return label
+
+
+class ScriptArgumentParser(argparse.ArgumentParser):
+    """Färbt die native Hilfe nach dem Layout, damit Spalten korrekt bleiben."""
+
+    def format_help(self) -> str:
+        """Erzeugt die gegliederte Terminalhilfe.
+
+        Returns:
+            Hilfe mit Farben nur für interaktive Ausgabe.
+        """
+        lines = super().format_help().splitlines()
+        for index, line in enumerate(lines):
+            if line.endswith(":"):
+                lines[index] = styled(line, "LIGHT_BLUE")
+            elif " | --" in line:
+                match = re.match(r"(\s*)(.*?)(\s{2,}.*|$)", line)
+                if match:
+                    lines[index] = match[1] + styled(match[2], "YELLOW") + match[3]
+            elif line.startswith("  " + self.prog):
+                lines[index] = styled(line, "GREEN")
+        return "\n" + "\n".join(lines) + "\n\n"
+
+    def error(self, message: str) -> None:
+        """Meldet Parserfehler im selben Stil wie fachliche Fehler.
+
+        Args:
+            message: Native Parserdiagnose.
+
+        Raises:
+            SystemExit: Immer mit Exit-Code 2.
+        """
+        self.print_usage(sys.stderr)
+        report_error(message)
+        self.exit(2)
 
 
 class UploadError(Exception):
@@ -167,15 +242,15 @@ def publish(
         raise UploadError(_("Docker Hub readback differs from the uploaded description."))
 
 
-def parse_args(arguments: list[str]) -> argparse.Namespace:
-    """Ohne Aktion erscheint nur die native Parser-Hilfe."""
-    parser = argparse.ArgumentParser(description=_("Publish the local README to Docker Hub."))
-    actions = parser.add_mutually_exclusive_group(required=True)
+def add_action_options(parser: argparse.ArgumentParser) -> None:
+    """Deklariert die ausschließenden Aktionen.
+
+    Args:
+        parser: Gemeinsamer Argumentparser.
+    """
+    actions = parser.add_argument_group(_("Actions")).add_mutually_exclusive_group(required=True)
     actions.add_argument(
-        "-n",
-        "--preview",
-        action="store_true",
-        help=_("Write a preview without network access or credentials."),
+        "-n", "--preview", action="store_true", help=_("Write a preview without Docker Hub access.")
     )
     actions.add_argument(
         "-p",
@@ -183,65 +258,124 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
         action="store_true",
         help=_("Upload the README and verify the saved description."),
     )
-    parser.add_argument(
+
+
+def add_repository_options(parser: argparse.ArgumentParser) -> None:
+    """Deklariert Repository und veröffentlichten Quellstand.
+
+    Args:
+        parser: Gemeinsamer Argumentparser.
+    """
+    group = parser.add_argument_group(_("Repository"))
+    group.add_argument(
         "-r",
         "--repository",
+        metavar="NAME",
         help=_("Docker Hub namespace/name; required for publication."),
     )
-    parser.add_argument(
+    group.add_argument(
         "-u",
         "--username",
+        metavar="USER",
         help=_("Docker Hub user; defaults to the repository namespace."),
     )
-    parser.add_argument(
+    group.add_argument(
         "-b",
         "--ref",
         required=True,
+        metavar="REF",
         help=_("Published GitHub branch or commit for links (required)."),
     )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        default=Path("README.dockerhub.md"),
-        help=_("Preview file; never the source README."),
+    group.add_argument(
+        "-g",
+        "--github-repository",
+        metavar="NAME",
+        help=_("GitHub owner/repository; defaults to origin."),
     )
-    parser.add_argument(
-        "-t",
-        "--token-file",
-        type=Path,
-        default=Path(
-            os.environ.get(
-                "DOCKER_PW_FILE",
-                str(
-                    Path(os.environ.get("DOCKER_CONFIG", str(Path.home() / ".docker")))
-                    / "dockerhub.sec"
-                ),
-            )
-        ),
-        help=_("Local token file; default follows DOCKER_PW_FILE / DOCKER_CONFIG."),
-    )
-    parser.add_argument(
+    group.add_argument(
         "-d",
         "--description",
+        metavar="TEXT",
         help=_("Optional short description; otherwise preserve the existing one."),
     )
-    parser.add_argument(
+
+
+def add_file_options(parser: argparse.ArgumentParser) -> None:
+    """Deklariert Pfade, ohne Dateien oder Zugangsdaten zu lesen.
+
+    Args:
+        parser: Gemeinsamer Argumentparser.
+    """
+    group = parser.add_argument_group(_("Files"))
+    token = Path(
+        os.environ.get(
+            "DOCKER_PW_FILE",
+            str(
+                Path(os.environ.get("DOCKER_CONFIG", str(Path.home() / ".docker")))
+                / "dockerhub.sec"
+            ),
+        )
+    )
+    group.add_argument(
         "-C",
         "--project-dir",
         type=Path,
         default=Path.cwd(),
+        metavar="DIR",
         help=_("Project root; defaults to the current directory."),
     )
-    parser.add_argument(
+    group.add_argument(
         "-s",
         "--readme",
         type=Path,
         default=Path("README.md"),
+        metavar="FILE",
         help=_("Source README, relative to the project root."),
     )
-    parser.add_argument(
-        "-g", "--github-repository", help=_("GitHub owner/repository; defaults to origin.")
+    group.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("README.dockerhub.md"),
+        metavar="FILE",
+        help=_("Preview file; never the source README."),
+    )
+    group.add_argument(
+        "-t",
+        "--token-file",
+        type=Path,
+        default=token,
+        metavar="FILE",
+        help=_("Local token file; default follows DOCKER_PW_FILE / DOCKER_CONFIG."),
+    )
+
+
+def parse_args(arguments: list[str]) -> argparse.Namespace:
+    """Liest Optionen; ohne Argumente erscheint Hilfe ohne Seiteneffekte.
+
+    Args:
+        arguments: Argumente ohne Programmnamen.
+
+    Returns:
+        Validierte Optionen für Vorschau oder Upload.
+    """
+    parser = ScriptArgumentParser(
+        prog=APPNAME,
+        add_help=False,
+        description=_("Publish the local README to Docker Hub."),
+        usage=_("%(prog)s [options]"),
+        formatter_class=lambda prog: ScriptHelpFormatter(prog, max_help_position=38, width=100),
+    )
+    parser.color = False  # Farben nach dem nativen Layout anwenden.
+    add_action_options(parser)
+    add_repository_options(parser)
+    add_file_options(parser)
+    parser.add_argument_group(_("Help")).add_argument(
+        "-h", "--help", action="help", help=_("Show this help and exit.")
+    )
+    parser.epilog = (
+        _("Hints:") + f"\n  {APPNAME} --preview --ref master\n"
+        f"  {APPNAME} --publish --ref master -r namespace/project"
     )
     options = parser.parse_args(arguments or ["--help"])
     if options.publish and not options.repository:
@@ -251,7 +385,7 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
 
 def report_error(message: str) -> None:
     """Ein Fehlertext für Python und Bash, einschließlich vorherigem Image-Push."""
-    print(message, file=sys.stderr)
+    print("  " + styled("✗ " + message, "RED", sys.stderr), file=sys.stderr)
     if os.environ.get("DOCKER_README_AFTER_PUSH") == "1":
         print(
             _("The image was already pushed. Retry the README upload separately."), file=sys.stderr
@@ -312,16 +446,22 @@ def main(arguments: list[str]) -> int:
             source_path.read_text(encoding="utf-8"), repository, options.ref, base
         )
         options.output = project / options.output
+        print("\n" + styled("▶ " + _("Prepare README"), "LIGHT_BLUE"))
         if options.preview:
             if options.output.resolve() == source_path.resolve():
                 raise UploadError(_("The preview must not overwrite README.md."))
             options.output.parent.mkdir(parents=True, exist_ok=True)
             options.output.write_text(content, encoding="utf-8")
-            print(_("Preview written: {path}").format(path=options.output))
+            print(
+                "  "
+                + styled("✓ ", "GREEN")
+                + _("Preview written: {path}").format(path=styled(str(options.output), "YELLOW"))
+            )
             return 0
         secret = options.token_file.read_text().strip()
         if not secret:
             raise UploadError(_("The token file is empty."))
+        print("\n" + styled("▶ " + _("Publish to Docker Hub"), "LIGHT_BLUE"))
         with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
             publish(
                 client,
@@ -332,8 +472,9 @@ def main(arguments: list[str]) -> int:
                 options.description,
             )
         print(
-            _("Docker Hub description updated and verified: {repository}").format(
-                repository=options.repository
+            styled("✓ ", "GREEN")
+            + _("Docker Hub description updated and verified: {repository}").format(
+                repository=styled(options.repository, "YELLOW")
             )
         )
         return 0

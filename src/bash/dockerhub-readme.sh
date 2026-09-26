@@ -15,6 +15,17 @@ set -euo pipefail
 readonly APPNAME="${0##*/}"
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly SCRIPT_DIR
+# BashLib-Farben an die Python-Ausgabe reichen; ohne BashLib nutzt sie ANSI-Basisfarben.
+BASH_LIBS="${BASH_LIBS:-${SCRIPT_DIR}/../../../BashLib/src}"
+if [[ -r "${BASH_LIBS}/colors.lib.sh" ]]; then
+    # shellcheck disable=SC1091  # Geteilte Bibliothek aus BASH_LIBS.
+    if [[ "${__COLORS_LIB__:-}" == "" ]]; then . "${BASH_LIBS}/colors.lib.sh"; fi
+    for COLOR_NAME in BLUE LIGHT_BLUE YELLOW GREEN RED; do
+        printf -v "PROJECTTOOLS_COLOR_${COLOR_NAME}" '%b' "${!COLOR_NAME}"
+        export "PROJECTTOOLS_COLOR_${COLOR_NAME}"
+    done
+fi
+export PROJECTTOOLS_APPNAME="${APPNAME}"
 readonly ENGINE="${SCRIPT_DIR}/../python/dockerhub-readme.py"
 BOOTSTRAP_PYTHON="${PYTHON_BOOTSTRAP:-python3}"
 if [[ -z "${PYTHON_BOOTSTRAP:-}" ]] && ! "${BOOTSTRAP_PYTHON}" -c \
@@ -31,7 +42,6 @@ readonly BOOTSTRAP_PYTHON
 
 # Vorhandenen gettext-Katalog nutzen, ohne eigene Text- oder Optionskopie.
 reportError() {
-    printf '%s: ' "${APPNAME}" >&2
     "${BOOTSTRAP_PYTHON}" -c '
 import runpy, sys
 module = runpy.run_path(sys.argv[1])
