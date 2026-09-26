@@ -562,7 +562,7 @@ def main(arguments: list[str]) -> int:
             source_path.read_text(encoding="utf-8"), repository, options.ref, base
         )
         options.output = project / options.output
-        print("\n" + styled("▶ " + _("Prepare README"), "LIGHT_BLUE"))
+        print("\n" + styled("▶ " + _("GitHub links converted; size limit checked"), "LIGHT_BLUE"))
         if options.preview:
             if options.output.resolve() == source_path.resolve():
                 raise UploadError(_("The preview must not overwrite README.md."))

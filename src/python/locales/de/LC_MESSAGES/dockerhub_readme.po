@@ -141,8 +141,8 @@ msgstr "%(prog)s [Optionen]"
 msgid "Write a preview without Docker Hub access."
 msgstr "Schreibe eine Vorschau ohne Docker-Hub-Zugriff."
 
-msgid "Prepare README"
-msgstr "README vorbereiten"
+msgid "GitHub links converted; size limit checked"
+msgstr "GitHub-Links umgewandelt, Größenlimit geprüft"
 
 msgid "Publish to Docker Hub"
 msgstr "Auf Docker Hub veröffentlichen"
