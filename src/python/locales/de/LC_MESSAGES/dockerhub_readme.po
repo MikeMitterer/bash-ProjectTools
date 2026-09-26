@@ -1,0 +1,85 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "origin must refer to a GitHub repository."
+msgstr "origin muss auf ein GitHub-Repository zeigen."
+
+msgid "A README link leaves the repository: {path}"
+msgstr "Ein README-Link verlässt das Repository: {path}"
+
+msgid "Converted README exceeds {limit} UTF-8 bytes; nothing uploaded. Record the Docker Hub limit in your project's AGENTS.md and move long sections into linked documents."
+msgstr "Das konvertierte README überschreitet {limit} UTF-8-Bytes; nichts hochgeladen. Verankere die Docker-Hub-Beschränkung in der AGENTS.md deines Projekts und lagere lange Abschnitte in verlinkte Dokumente aus."
+
+msgid "Docker Hub returned HTTP {status}."
+msgstr "Docker Hub antwortet mit HTTP {status}."
+
+msgid "Docker Hub returned an invalid response."
+msgstr "Docker Hub hat eine ungültige Antwort geliefert."
+
+msgid "Repository must use the form namespace/name."
+msgstr "Gib das Repository als namespace/name an."
+
+msgid "Short description exceeds 100 bytes."
+msgstr "Die Kurzbeschreibung überschreitet 100 Bytes."
+
+msgid "Docker Hub readback differs from the uploaded description."
+msgstr "Die zurückgelesene Beschreibung weicht vom Upload ab."
+
+msgid "Publish the local README to Docker Hub."
+msgstr "Übertrage das lokale README nach Docker Hub."
+
+msgid "Write a preview without network access or credentials."
+msgstr "Schreibe eine Vorschau ohne Netzwerkzugriff oder Zugangsdaten."
+
+msgid "Upload the README and verify the saved description."
+msgstr "Übertrage das README und prüfe die gespeicherte Beschreibung."
+
+msgid "Docker Hub namespace/name; required for publication."
+msgstr "Docker Hub namespace/name; zum Veröffentlichen erforderlich."
+
+msgid "Docker Hub user; defaults to the repository namespace."
+msgstr "Docker-Hub-Benutzer; Vorgabe ist der Repository-Namespace."
+
+msgid "Published GitHub branch or commit for links (required)."
+msgstr "Veröffentlichter GitHub-Branch oder Commit für Links (erforderlich)."
+
+msgid "Preview file; never the source README."
+msgstr "Vorschaudatei; niemals das Quell-README."
+
+msgid "Local token file; default follows DOCKER_PW_FILE / DOCKER_CONFIG."
+msgstr "Lokale Token-Datei; Vorgabe folgt DOCKER_PW_FILE / DOCKER_CONFIG."
+
+msgid "Optional short description; otherwise preserve the existing one."
+msgstr "Optionale Kurzbeschreibung; sonst bleibt die bestehende erhalten."
+
+msgid "--publish requires --repository."
+msgstr "--publish benötigt --repository."
+
+msgid "The preview must not overwrite README.md."
+msgstr "Die Vorschau darf README.md nicht überschreiben."
+
+msgid "Preview written: {path}"
+msgstr "Vorschau geschrieben: {path}"
+
+msgid "The token file is empty."
+msgstr "Die Token-Datei ist leer."
+
+msgid "Docker Hub description updated and verified: {repository}"
+msgstr "Docker-Hub-Beschreibung aktualisiert und geprüft: {repository}"
+
+msgid "Operation failed ({kind}); check Pandoc, the token file and connectivity."
+msgstr "Aktion fehlgeschlagen ({kind}); prüfe Pandoc, die Token-Datei und die Verbindung."
+
+msgid "The image was already pushed. Retry the README upload separately."
+msgstr "Das Image wurde bereits gepusht. Wiederhole den README-Upload separat."
+
+msgid "Project root; defaults to the current directory."
+msgstr "Projektverzeichnis; Vorgabe ist das aktuelle Verzeichnis."
+
+msgid "Source README, relative to the project root."
+msgstr "Quell-README, relativ zum Projektverzeichnis."
+
+msgid "GitHub owner/repository; defaults to origin."
+msgstr "GitHub owner/repository; Vorgabe aus origin."
