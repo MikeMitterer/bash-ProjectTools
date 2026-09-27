@@ -71,3 +71,6 @@ msgstr "Zeigt diese Hilfe und beendet das Script."
 
 msgid "Examples:"
 msgstr "Beispiele:"
+
+msgid "Options"
+msgstr "Optionen"

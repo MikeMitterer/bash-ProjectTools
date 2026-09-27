@@ -4,6 +4,9 @@
 #
 # Aufruf: python3 src/python/changelog.py -g | -n | -p
 # Standardbibliothek; Git-Zugriff liegt in git_access/changelog.py.
+# Farben und Abstände: colors.py, abgestimmt mit colours.mk und colors.lib.sh.
+# Beispiel: MAKE_THEME=ocean python3 changelog.py --help
+# Direkter Aufruf ohne venv; optional py-run.sh --run changelog --help.
 # ------------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -57,7 +60,8 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
         add_help=False,
     )
     parser.color = False  # Farbe erst nach dem nativen Spaltenlayout anwenden.
-    action = parser.add_mutually_exclusive_group(required=True)
+    group = parser.add_argument_group(_("Options"))
+    action = group.add_mutually_exclusive_group(required=True)
     action.add_argument(
         "-g",
         "--generate",
@@ -76,14 +80,14 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
         action="store_true",
         help=_("Write, commit and push the changelog."),
     )
-    parser.add_argument(
+    group.add_argument(
         "-o",
         "--output",
         type=Path,
         default=Path("CHANGELOG.md"),
         help=_("Output file inside the current repository."),
     )
-    parser.add_argument("-h", "--help", action="help", help=_("Show this help and exit."))
+    group.add_argument("-h", "--help", action="help", help=_("Show this help and exit."))
     parser.epilog = (
         _("Examples:")
         + "\n  python3 "
