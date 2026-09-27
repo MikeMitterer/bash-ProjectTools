@@ -1,0 +1,55 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "Available scripts:"
+msgstr "Verfügbare Skripte:"
+
+msgid "Could not create .venv. Check Python's venv support and directory permissions."
+msgstr "Die .venv konnte nicht angelegt werden. Prüfe Python-venv und die Verzeichnisrechte."
+
+msgid "Could not install dependencies in .venv. Check pip and package-index access."
+msgstr "Die Abhängigkeiten konnten nicht in .venv installiert werden. Prüfe pip und den Paketindex-Zugriff."
+
+msgid "Examples:"
+msgstr "Beispiele:"
+
+msgid "List and run ProjectTools Python scripts."
+msgstr "Python-Werkzeuge aus ProjectTools auflisten und starten."
+
+msgid "List available scripts."
+msgstr "Verfügbare Skripte anzeigen."
+
+msgid "Own virtual environment"
+msgstr "Eigene virtuelle Umgebung"
+
+msgid "Python 3.11 or newer is required. Set PYTHON_BOOTSTRAP to a suitable interpreter."
+msgstr "Python ab 3.11 ist erforderlich. Setze PYTHON_BOOTSTRAP auf einen passenden Interpreter."
+
+msgid "Run a script; remaining arguments belong to that script."
+msgstr "Skript starten; weitere Argumente an das Skript weiterreichen."
+
+msgid "Show this help and exit."
+msgstr "Diese Hilfe anzeigen und beenden."
+
+msgid "Specify a script after --run."
+msgstr "Nach --run ein Skript angeben."
+
+msgid "Standard library; no installation"
+msgstr "Standardbibliothek; keine Installation"
+
+msgid "The image was already pushed. Retry the README upload separately."
+msgstr "Das Image wurde bereits veröffentlicht. Wiederhole den README-Upload separat."
+
+msgid "The tool .venv must be a working virtual environment with Python 3.11 or newer."
+msgstr "Die Werkzeug-.venv muss eine funktionierende virtuelle Umgebung mit Python ab 3.11 sein."
+
+msgid "The tool environment must not be a symlink. Check the ProjectTools cache directory."
+msgstr "Die Werkzeugumgebung darf kein Symlink sein. Prüfe das ProjectTools-Cacheverzeichnis."
+
+msgid "Unknown script: {name}. Use --list."
+msgstr "Unbekanntes Skript: {name}. Verwende --list."
+
+msgid "Options"
+msgstr "Optionen"

@@ -43,7 +43,7 @@ def terminal_output(arguments: list[str], environment: dict[str, str]) -> tuple[
 
 
 @pytest.mark.parametrize("no_color", [False, True])
-def test_terminal_hilfe_hat_feste_spalten_und_beispiele(tmp_path: Path, no_color: bool) -> None:
+def test_terminal_help_has_aligned_columns_and_examples(tmp_path: Path, no_color: bool) -> None:
     environment = {
         **os.environ,
         "LANGUAGE": "de",
@@ -61,16 +61,20 @@ def test_terminal_hilfe_hat_feste_spalten_und_beispiele(tmp_path: Path, no_color
         assert heading in text
     rows = [line for line in text.splitlines() if " | --" in line]
     assert len(rows) == 12
-    assert {line.index("|") for line in rows} == {5}
-    assert {line.index("--") for line in rows} == {7}
+    assert {line.index("|") for line in rows} == {10}
+    assert {line.index("--") for line in rows} == {12}
     assert "dockerhub-readme.sh --preview" in " ".join(text.split())
     assert "Vorgabe: master." in " ".join(text.split())
     assert "Vorgabe: docker/README.md." in " ".join(text.split())
     assert not (tmp_path / "projecttools").exists()
 
 
-def test_pipe_ausgabe_bleibt_ohne_ansi(tmp_path: Path) -> None:
-    environment = {**os.environ, "TERM": "xterm-256color", "XDG_CACHE_HOME": str(tmp_path)}
+def test_pipe_output_has_no_ansi(tmp_path: Path) -> None:
+    environment = {
+        **os.environ,
+        "TERM": "xterm-256color",
+        "XDG_CACHE_HOME": str(tmp_path),
+    }
     environment.pop("NO_COLOR", None)
     result = subprocess.run(
         [str(SCRIPT), "--help"], env=environment, capture_output=True, text=True
@@ -79,7 +83,7 @@ def test_pipe_ausgabe_bleibt_ohne_ansi(tmp_path: Path) -> None:
     assert "--preview" in result.stdout and not ANSI.search(result.stdout)
 
 
-def test_terminal_fehler_ist_rot_und_ohne_traceback(tmp_path: Path) -> None:
+def test_terminal_error_is_red_without_traceback(tmp_path: Path) -> None:
     environment = {
         **os.environ,
         "LANGUAGE": "de",

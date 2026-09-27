@@ -179,7 +179,8 @@ Kopierschleife zurück und hängt den Testlauf auf.
 
 ### `dockerhub-readme.sh` — README nach Docker Hub übertragen
 
-`src/bash/dockerhub-readme.sh` bereitet seine eigene `.venv` vor und startet
+`src/bash/dockerhub-readme.sh` delegiert an den gemeinsamen `py-run.sh`, der
+eine eigene Werkzeug-`.venv` vorbereitet und anschließend startet:
 `src/python/dockerhub-readme.py`. Das Python-Script konvertiert relative Markdown-Bild- und
 Dokumentlinks in absolute GitHub-URLs und aktualisiert die Repository-Übersicht.
 Python 3.11+ und Pandoc müssen vorhanden sein. Der Bash-Einstieg legt
@@ -309,3 +310,93 @@ beheben und den Commit gezielt abschließen, bevor Publish erneut startet.
 Prüfung: `python -m unittest discover -s tests/python -p test_changelog.py -v`
 aus einer aktivierten Testumgebung. Die Tests verwenden temporäre
 Git-Repositories und lokale Remotes, ohne Netzwerk oder echte Releases.
+
+### `py-run.sh` — Python-Werkzeuge starten
+
+```bash
+./src/bash/py-run.sh --help
+./src/bash/py-run.sh --list
+./src/bash/py-run.sh --run changelog --dry-run
+./src/bash/py-run.sh --run dockerhub-readme --preview
+```
+
+`-l`/`--list` findet direkt ausführbare Python-Skripte unter `src/python/`,
+ohne sie zu importieren. Bibliotheksmodule und der Runner selbst fehlen in der
+Liste. `-r`/`--run SCRIPT` übernimmt Namen mit oder ohne `.py`; alle folgenden
+Argumente, auch `--help`, gehören dem ausgewählten Skript. Unbekannte Skripte
+und Runner-Argumente enden mit Status 2. Der Exit-Code des Werkzeugs bleibt erhalten.
+Ohne Argumente erscheint die Hilfe. Hilfe und Liste installieren nichts.
+
+Der Runner benötigt Python ab 3.11; `PYTHON_BOOTSTRAP` wählt den Interpreter.
+Changelog bleibt unabhängig davon direkt mit Python ab 3.9 ausführbar und
+benötigt keine venv. Reine Standardbibliothek wird auch über den Runner direkt
+gestartet. Benötigt ein Werkzeug Pakete, stehen sie einmalig in der benachbarten
+`<name>.requirements.txt`. Der Runner verwaltet dafür ausschließlich
+`${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/<name>/.venv`; die Projektumgebung
+bleibt unberührt. Erstinstallation kann Netzwerk benötigen. Wiederholte Aufrufe
+verwenden die fertige Umgebung. Geänderte Requirements lösen eine Installation
+aus; fehlende exakt gepinnte Pakete und defekte Abhängigkeiten werden erkannt.
+
+Neue paketabhängige Skripte halten Hilfe und Parser frei von optionalen Imports.
+Eine Funktion `prepare_cli(arguments)` prüft bei Bedarf Argumente, lokale Dateien
+und externe Programme, bevor der Runner die venv anlegt. Erwartete Fehler werden
+vom Werkzeug übersetzt gemeldet und beenden mit nonzero. Diese Funktion führt
+keine Fachaktion aus. Für weitere Werkzeuge wird kein Bootstrap kopiert.
+
+Der bisherige `dockerhub-readme.sh` bleibt als kompatibler Alias erhalten.
+Seine gesamte Umgebungseinrichtung liegt im gemeinsamen Runner.
+
+## CLI-Themes und Abstände
+
+Die drei eigenständigen Dateien MakeLib `colours.mk`, BashLib
+`src/colors.lib.sh` und ProjectTools `src/python/colors.py` verwenden dieselbe
+Palette und Theme-Auswahl: `classic` (Standard), `ocean`, `earth`, `night`,
+`mono`, `sunset`, `forest`, `neon`, `shell`. Ein unbekannter Name verwendet
+`classic`. Die Auswahl kann wie bisher in der jeweiligen Datei umgestellt
+oder mit `MAKE_THEME` überschrieben werden. Es gibt keine generierte Datei.
+Make exportiert die Auswahl und Layout-Werte an seine Kindprozesse.
+
+```bash
+make help MAKE_THEME=ocean
+MAKE_THEME=ocean ./src/bash/py-run.sh --help
+MAKE_THEME=ocean python3 src/python/changelog.py --help
+```
+
+| Einstellung | Vorgabe | Bedeutung |
+|---|---|---|
+| `THEME_INDENT_GROUP` | zwei Leerzeichen | Gruppenüberschrift |
+| `THEME_INDENT_TARGET` | sieben Leerzeichen | Target oder Option |
+| `THEME_WIDTH_TARGET` | `22` | Breite der ersten Spalte |
+| `THEME_COLUMN_GAP` | `1` | Mindestabstand zur Beschreibung |
+| `THEME_WIDTH_HELP` | `110` | Python-Hilfe: gesamte Textbreite |
+| `THEME_GROUP_SPACING` | `1` | Leerzeilen zwischen Gruppen |
+
+Mit diesen Vorgaben beginnt die Beschreibung in Spalte 31. Lange Beschriftungen
+stehen bei `usageLine`/`themeLine` und der Python-Hilfe auf einer eigenen Zeile.
+Python bricht lange Beschreibungen an der Gesamtbreite um; Bash und Make
+geben Beschreibungstexte wie bisher unverändert aus. Einrückungen sind weiterhin
+**Leerzeichenketten**, Breiten und Abstände nichtnegative Zahlen. Einzelne
+Werte vor dem Include/Source beziehungsweise per Umgebung überschreiben.
+
+`THEME_COLOR_GROUP`, `TARGET`, `DESC`, `SERVER`, `DANGER` (jeweils mit dem Präfix
+`THEME_COLOR_`) behalten ihre Namen. Hinzu kommen `THEME_COLOR_SUCCESS` und
+`THEME_COLOR_WARNING`. Grundfarben und die bisherigen öffentlichen Makros,
+Bash-Funktionen und Argumente bleiben verfügbar. Die Standarddarstellung der
+Ausgabehelfer folgt jetzt dem gemeinsamen Theme.
+
+Die neuen Bash-/Python-Helfer geben in Pipes, bei `NO_COLOR` und `TERM=dumb`
+keine ANSI-Farben aus. Make berücksichtigt `NO_COLOR` und behält seine bisherige
+TERM-basierte Farberkennung. Bash-Grundkonstanten bleiben aus Kompatibilität
+unveränderte Escape-Strings für `printf '%b'` oder `echo -e`.
+
+Python verwendet `from colors import HelpFormatter, Theme`; der Formatter
+liest die Optionen aus argparse. `Theme().line(label, description)` formatiert
+eine einzelne Zeile. `styled(text, color, stream)` bleibt für vorhandene
+Python-Farbaufrufe und `PROJECTTOOLS_COLOR_*` verfügbar.
+
+Repositoryübergreifender Vergleich aller neun Themes und alter Schnittstellen:
+
+```bash
+THEME_MAKE_LIB=/path/to/MakeLib BASH_LIBS=/path/to/BashLib/src \
+  python3 -m pytest tests/python/test_cli_themes.py
+```

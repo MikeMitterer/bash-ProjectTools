@@ -21,11 +21,15 @@ import os
 import posixpath
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, TextIO
+from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
+
+from colors import HelpFormatter, Theme
+from colors import styled as styled
 
 if TYPE_CHECKING:
     import httpx
@@ -38,31 +42,7 @@ README_LIMIT = 25_000
 APPNAME = os.environ.get("PROJECTTOOLS_APPNAME", Path(__file__).name)
 
 
-def styled(text: str, color: str, stream: TextIO = sys.stdout) -> str:
-    """Färbt Text nur im Terminal, mit BashLib-Palette und NO_COLOR-Unterstützung.
-
-    Args:
-        text: Sichtbarer Text ohne ANSI-Sequenzen.
-        color: Farbname aus der BashLib-Palette.
-        stream: Zielausgabe zur Terminalerkennung.
-
-    Returns:
-        Farbiger oder unveränderter Text.
-    """
-    if "NO_COLOR" in os.environ or not stream.isatty() or os.environ.get("TERM") == "dumb":
-        return text
-    defaults = {
-        "BLUE": "34",
-        "LIGHT_BLUE": "96",
-        "YELLOW": "33",
-        "GREEN": "32",
-        "RED": "31",
-    }
-    prefix = os.environ.get(f"PROJECTTOOLS_COLOR_{color}", f"\033[{defaults[color]}m")
-    return f"{prefix}{text}\033[0m"
-
-
-class ScriptHelpFormatter(argparse.RawDescriptionHelpFormatter):
+class ScriptHelpFormatter(HelpFormatter):
     """Native argparse-Hilfe mit festen Spalten für Kurz- und Langoptionen."""
 
     def _get_help_string(self, action: argparse.Action) -> str:
@@ -79,44 +59,12 @@ class ScriptHelpFormatter(argparse.RawDescriptionHelpFormatter):
             text += " " + _("Default: %(default)s.")
         return text
 
-    def _format_action_invocation(self, action: argparse.Action) -> str:
-        """Formatiert die vom Parser deklarierte Option, ohne zweite Optionsliste.
-
-        Args:
-            action: Native Parser-Aktion.
-
-        Returns:
-            Kurzoption, Trennzeichen, Langoption und optionaler Platzhalter.
-        """
-        if not action.option_strings:
-            return super()._format_action_invocation(action)
-        short, long = action.option_strings
-        label = f"{short:2} | {long}"
-        if action.nargs != 0:
-            label += " " + self._format_args(action, action.metavar or action.dest.upper())
-        return label
-
 
 class ScriptArgumentParser(argparse.ArgumentParser):
     """Färbt die native Hilfe nach dem Layout, damit Spalten korrekt bleiben."""
 
     def format_help(self) -> str:
-        """Erzeugt die gegliederte Terminalhilfe.
-
-        Returns:
-            Hilfe mit Farben nur für interaktive Ausgabe.
-        """
-        lines = super().format_help().splitlines()
-        for index, line in enumerate(lines):
-            if line.endswith(":") and not line.startswith(" "):
-                lines[index] = styled(line, "LIGHT_BLUE")
-            elif " | --" in line:
-                match = re.match(r"(\s*)(.*?)(\s{2,}.*|$)", line)
-                if match:
-                    lines[index] = match[1] + styled(match[2], "YELLOW") + match[3]
-            elif line.startswith("  " + self.prog):
-                lines[index] = styled(line, "GREEN")
-        return "\n" + "\n".join(lines) + "\n\n"
+        return "\n" + super().format_help() + "\n"
 
     def error(self, message: str) -> None:
         """Meldet Parserfehler im selben Stil wie fachliche Fehler.
@@ -403,7 +351,7 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
         add_help=False,
         description=_("Publish the local README to Docker Hub."),
         usage=_("%(prog)s [options]"),
-        formatter_class=lambda prog: ScriptHelpFormatter(prog, max_help_position=38, width=100),
+        formatter_class=ScriptHelpFormatter,
     )
     parser.color = False  # Farben nach dem nativen Layout anwenden.
     add_action_options(parser)
@@ -417,9 +365,24 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
     return options
 
 
+def prepare_cli(arguments: list[str]) -> None:
+    """Validiert vor der Einrichtung durch py-run.sh die fachlichen Eingaben."""
+    try:
+        validate_inputs(parse_args(arguments))
+        if shutil.which("pandoc") is None:
+            raise UploadError(
+                _("Pandoc is missing. Install it from https://pandoc.org/installing.html.")
+            )
+    except UploadError as error:
+        report_error(str(error))
+        raise SystemExit(1) from error
+
+
 def report_error(message: str) -> None:
     """Ein Fehlertext für Python und Bash, einschließlich vorherigem Image-Push."""
-    print("  " + styled("✗ " + message, "RED", sys.stderr), file=sys.stderr)
+    print(
+        Theme().indent_group + Theme().style("✗ " + message, "DANGER", sys.stderr), file=sys.stderr
+    )
     if os.environ.get("DOCKER_README_AFTER_PUSH") == "1":
         print(
             _("The image was already pushed. Retry the README upload separately."),
@@ -562,22 +525,24 @@ def main(arguments: list[str]) -> int:
             source_path.read_text(encoding="utf-8"), repository, options.ref, base
         )
         options.output = project / options.output
-        print("\n" + styled("▶ " + _("GitHub links converted; size limit checked"), "LIGHT_BLUE"))
+        print("\n" + Theme().style("▶ " + _("GitHub links converted; size limit checked"), "GROUP"))
         if options.preview:
             if options.output.resolve() == source_path.resolve():
                 raise UploadError(_("The preview must not overwrite README.md."))
             options.output.parent.mkdir(parents=True, exist_ok=True)
             options.output.write_text(content, encoding="utf-8")
             print(
-                "  "
-                + styled("✓ ", "GREEN")
-                + _("Preview written: {path}").format(path=styled(str(options.output), "YELLOW"))
+                Theme().indent_group
+                + Theme().style("✓ ", "SUCCESS")
+                + _("Preview written: {path}").format(
+                    path=Theme().style(str(options.output), "VALUE")
+                )
             )
             return 0
         secret = options.token_file.read_text().strip()
         if not secret:
             raise UploadError(_("The token file is empty."))
-        print("\n" + styled("▶ " + _("Publish to Docker Hub"), "LIGHT_BLUE"))
+        print("\n" + Theme().style("▶ " + _("Publish to Docker Hub"), "GROUP"))
         with httpx.Client(timeout=30, follow_redirects=False, trust_env=False) as client:
             publish(
                 client,
@@ -588,12 +553,12 @@ def main(arguments: list[str]) -> int:
                 options.description,
             )
         print(
-            styled("✓ ", "GREEN")
+            Theme().style("✓ ", "SUCCESS")
             + _("Docker Hub description updated and verified: {repository}").format(
-                repository=styled(options.repository, "YELLOW")
+                repository=Theme().style(options.repository, "VALUE")
             )
         )
-        print("  " + styled(f"{HUB_URL}/r/{options.repository}", "YELLOW"))
+        print(Theme().indent_group + Theme().style(f"{HUB_URL}/r/{options.repository}", "VALUE"))
         return 0
     except UploadError as error:
         report_error(str(error))

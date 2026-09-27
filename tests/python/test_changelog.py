@@ -110,7 +110,8 @@ class ChangelogTests(unittest.TestCase):
         result = self.run_tool("--publish")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"), "CHANGELOG.md"
+            self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"),
+            "CHANGELOG.md",
         )
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(self.run_tool("--publish").returncode, 0)
@@ -204,9 +205,9 @@ class ChangelogTests(unittest.TestCase):
         self.git("tag", "v0.1.0")
         status, help_output = self.terminal("-h")
         self.assertEqual(status, 0, help_output)
-        self.assertIn("\x1b[38;5;45m-g | --generate", help_output)
+        self.assertIn("\x1b[38;5;33m-g | --generate", help_output)
         self.assertIn("\x1b[38;5;11mOUTPUT", help_output)
-        self.assertIn("\x1b[38;5;10m  python3", help_output)
+        self.assertIn("\x1b[38;5;10mpython3", help_output)
         status, output = self.terminal("-g")
         self.assertEqual(status, 0, output)
         self.assertIn("\x1b[38;5;10m✓", output)
@@ -224,8 +225,8 @@ class ChangelogTests(unittest.TestCase):
         output = self.run_tool("-h").stdout
         lines = [line for line in output.splitlines() if " | --" in line]
         self.assertEqual(len(lines), 5)
-        self.assertEqual({line.index("|") for line in lines}, {5})
-        self.assertEqual({line.index("--") for line in lines}, {7})
+        self.assertEqual({line.index("|") for line in lines}, {10})
+        self.assertEqual({line.index("--") for line in lines}, {12})
         self.assertIn("-o | --output OUTPUT", output)
         descriptions = [
             "Write the changelog",
@@ -236,9 +237,9 @@ class ChangelogTests(unittest.TestCase):
         ]
         self.assertEqual(
             {lines[index].index(description) for index, description in enumerate(descriptions)},
-            {36},
+            {30},
         )
-        self.assertRegex(lines[3], r"OUTPUT {10,}Output file")
+        self.assertRegex(lines[3], r"OUTPUT {3,}Output file")
         self.assertIn("python3 changelog.py --dry-run", output)
         self.assertNotRegex(output, re.compile(r"\x1b\["))
         self.assertFalse((self.root / "cache").exists())

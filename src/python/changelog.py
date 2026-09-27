@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import argparse
 import gettext
-import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TextIO
 
+from colors import HelpFormatter, Theme
+from colors import styled as styled
 from git_access.changelog import GitRepository
 
 _ = gettext.translation(
@@ -29,57 +29,19 @@ class ChangelogError(Exception):
     """Erwarteter Eingabe- oder Zustandsfehler mit übersetzbarer Meldung."""
 
 
-class HelpFormatter(argparse.RawDescriptionHelpFormatter):
-    """Richtet kurze und lange Optionen in gleichbleibenden Spalten aus."""
-
-    def _format_action_invocation(self, action: argparse.Action) -> str:
-        if not action.option_strings:
-            return super()._format_action_invocation(action)
-        short, *long = action.option_strings
-        label = f"{short:2} | {long[0] if long else ''}"
-        if action.nargs != 0:
-            label += " " + self._format_args(action, action.dest.upper())
-        return f"{label:32}"
-
-
-def styled(text: str, color: int, stream: TextIO) -> str:
-    """Färbt Statusmeldungen nur am Terminal und respektiert NO_COLOR."""
-    if "NO_COLOR" in os.environ or os.environ.get("TERM") == "dumb" or not stream.isatty():
-        return text
-    return f"\033[38;5;{color}m{text}\033[0m"
-
-
 def report_error(message: str) -> None:
     """Meldet Eingabe- und Ausführungsfehler einheitlich auf stderr."""
-    print("  " + styled("✗ " + message, 196, sys.stderr), file=sys.stderr)
+    print(
+        Theme().indent_group + Theme().style("✗ " + message, "DANGER", sys.stderr),
+        file=sys.stderr,
+    )
 
 
 class ScriptArgumentParser(argparse.ArgumentParser):
     """Färbt die native Optionsliste nach dem Layout, ohne zweite Optionsdefinition."""
 
     def format_help(self) -> str:
-        """Hält ANSI-Sequenzen aus der Breitenberechnung des Parsers heraus."""
-        lines = super().format_help().splitlines()
-        for index, line in enumerate(lines):
-            if line.endswith(":") and not line.startswith(" "):
-                lines[index] = styled(line, 45, sys.stdout)
-            elif " | --" in line:
-                columns = re.match(r"(\s+)(.*?)(\s{2,})(\S.*)$", line)
-                if columns:
-                    option = columns[2]
-                    placeholder = re.search(r" ([A-Z][A-Z_]+)$", option)
-                    if placeholder:
-                        option = (
-                            styled(option[: placeholder.start()], 45, sys.stdout)
-                            + " "
-                            + styled(placeholder[1], 11, sys.stdout)
-                        )
-                    else:
-                        option = styled(option, 45, sys.stdout)
-                    lines[index] = columns[1] + option + columns[3] + columns[4]
-            elif line.startswith("  python3 "):
-                lines[index] = styled(line, 10, sys.stdout)
-        return "\n" + "\n".join(lines) + "\n\n"
+        return "\n" + super().format_help() + "\n"
 
     def error(self, message: str) -> None:
         self.print_usage(sys.stderr)
@@ -91,19 +53,28 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
     """Liest die einzige Optionsdefinition für Bash und Python."""
     parser = ScriptArgumentParser(
         description=_("Generate a changelog from release tags."),
-        formatter_class=lambda prog: HelpFormatter(prog, max_help_position=40, width=110),
+        formatter_class=HelpFormatter,
         add_help=False,
     )
     parser.color = False  # Farbe erst nach dem nativen Spaltenlayout anwenden.
     action = parser.add_mutually_exclusive_group(required=True)
     action.add_argument(
-        "-g", "--generate", action="store_true", help=_("Write the changelog without committing.")
+        "-g",
+        "--generate",
+        action="store_true",
+        help=_("Write the changelog without committing."),
     )
     action.add_argument(
-        "-n", "--dry-run", action="store_true", help=_("Print a preview without writing a file.")
+        "-n",
+        "--dry-run",
+        action="store_true",
+        help=_("Print a preview without writing a file."),
     )
     action.add_argument(
-        "-p", "--publish", action="store_true", help=_("Write, commit and push the changelog.")
+        "-p",
+        "--publish",
+        action="store_true",
+        help=_("Write, commit and push the changelog."),
     )
     parser.add_argument(
         "-o",
@@ -125,7 +96,7 @@ def parse_args(arguments: list[str]) -> argparse.Namespace:
 
 
 def validate_inputs(options: argparse.Namespace) -> GitRepository:
-    """Prüft vor Umgebungseinrichtung und Schreiben die lokalen Voraussetzungen."""
+    """Prüft vor dem Schreiben die lokalen Voraussetzungen."""
     repository = GitRepository(Path.cwd())
     root = Path(repository.run("rev-parse", "--show-toplevel")).resolve()
     repository = GitRepository(root)
@@ -223,7 +194,11 @@ def write_output(output: Path, content: str) -> None:
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=output.parent, prefix=".changelog-", delete=False
+            mode="w",
+            encoding="utf-8",
+            dir=output.parent,
+            prefix=".changelog-",
+            delete=False,
         ) as stream:
             temporary = Path(stream.name)
             stream.write(content)
@@ -247,10 +222,10 @@ def main(arguments: list[str]) -> int:
             if options.publish:
                 repository.publish(options.output)
             print(
-                "  "
-                + styled(
+                Theme().indent_group
+                + Theme().style(
                     "✓ " + _("Changelog updated: {path}").format(path=options.output),
-                    10,
+                    "SUCCESS",
                     sys.stdout,
                 )
             )
