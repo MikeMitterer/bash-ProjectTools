@@ -18,7 +18,7 @@ Teil des DevBash-Ökosystems:
 
 ## Konfiguration
 
-Jedes Script liest seine projektspezifische Config aus dem CWD. Der Name wird
+Scripts mit projektspezifischer Config lesen sie aus dem CWD. Der Name wird
 aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh` (die
 `.conf`-Endung ohne `.sh` wird ebenfalls akzeptiert). Die Config ist ein
 **sourcebares Bash-Snippet** (BashTools-Konvention) — das Script sourct sie mit
@@ -247,3 +247,65 @@ Die Bootstrap-Tests installieren in echte temporäre venvs. Für Offline-Tests
 vorher Wheels herunterladen und `PIP_NO_INDEX=1 PIP_FIND_LINKS=<wheel-ordner>` setzen.
 Deutscher gettext-Katalog: `src/python/locales/de/LC_MESSAGES/dockerhub_readme.po`;
 nach Textänderungen mit `msgfmt <datei.po> -o <datei.mo>` neu übersetzen.
+
+
+### `changelog.py` — Release-Historie aus Git
+
+Der gemeinsame Generator schreibt `CHANGELOG.md` aus den Release-Tags und
+Conventional Commits des aufrufenden Repositorys. Er braucht Git und
+Python 3.9+, verwendet ausschließlich die Standardbibliothek und startet direkt.
+Es gibt keinen Bash-Wrapper, keine Paketinstallation und keine eigene venv.
+Das ist Mikes ausdrückliche Ausnahme von der Python-Bootstrap-Vorgabe für
+dieses Werkzeug (2026-09-27). Ohne Argumente oder mit `--help` erscheint nur Hilfe.
+
+```bash
+python3 "${PROJECT_TOOLS}/python/changelog.py" --help
+python3 "${PROJECT_TOOLS}/python/changelog.py" --dry-run
+python3 "${PROJECT_TOOLS}/python/changelog.py" --generate
+python3 "${PROJECT_TOOLS}/python/changelog.py" --publish
+```
+
+`-g/--generate` schreibt die Datei, `-n/--dry-run` zeigt sie nur,
+`-p/--publish` schreibt, committet ausschließlich diese Datei und pusht den
+aktuellen Branch über dessen Upstream. `-o/--output` wählt eine andere Datei
+innerhalb des Arbeitsbaums. Ein wiederholter Publish pusht erneut, erzeugt
+aber bei identischem Inhalt keinen neuen Commit. Fremde Änderungen an
+versionierten Dateien und ein gefüllter Git-Index verhindern Publish.
+Die generierte Ausgabedatei darf dabei bereits lokal geändert sein.
+
+Die vollständige Git-Historie muss lokal vorhanden sein; fehlende Tags bei
+Bedarf mit `git fetch --tags` holen. Verarbeitet werden SemVer-Tags, auch mit
+Build-Metadaten, auf der First-Parent-Historie des aktuellen Branches.
+Feature-Branch-Tags werden nicht zu Releases des Hauptbranches. Die Commits
+eingemergter Branches erscheinen im nächsten Hauptbranch-Release genau einmal.
+Noch nicht getaggte Änderungen fehlen bewusst.
+
+Gruppen: inkompatible Änderungen, Funktionen, Fehlerkorrekturen,
+Geschwindigkeit, weitere Änderungen und Dokumentation. Interne Scopes
+`tickets`, `activity`, `lessons`, `changelog` sowie normale `chore`, `test`,
+`ci` und Merge-Commits entfallen. Reine Änderungen unter `_tickets/` oder
+in Agenten-Regeldateien entfallen auch bei anderen Scopes. Nicht konventionelle
+Commit-Titel werden nicht interpretiert. Gemischte Commits mit Änderungen an
+Produktanleitungen können erscheinen; der Generator bewertet Texte nicht
+semantisch. Annotierte Tag-Nachrichten liefern die Release-Kurztexte;
+leichtgewichtige Tags erhalten keinen erfundenen Kurztext. Manuelle Änderungen
+an der generierten Datei werden überschrieben. CLI und Überschriften verwenden
+gettext (Deutsch/Englisch); `LANGUAGE=en` erzeugt ein englisches Dokument,
+die ursprünglichen Commit- und Tag-Texte bleiben unverändert.
+
+Die Hilfe verwendet die native Parser-Optionsliste mit festen, großzügigen
+Spalten. Optionen und Abschnittstitel sind hellblau, Platzhalter wie `OUTPUT`
+gelb und Beispiele grün. Erfolgsmeldungen sind grün, Fehler rot, jeweils mit
+Symbol. Die Farben entsprechen der BashLib-Palette; ein Bash-Start ist dafür
+nicht nötig. `NO_COLOR`, `TERM=dumb` und umgeleitete Ausgaben deaktivieren Farben.
+
+Die Einbindung erfolgt direkt im konsumierenden Makefile: nach erfolgreichem
+`semVerBump` das Script mit `--publish` aufrufen. Die BashLib bleibt unverändert.
+Der Changelog-Commit liegt damit nach dem Release-Tag. Scheitert dieser Schritt,
+bleibt das Release bestehen; nur `--publish` wiederholen, nicht erneut bumpen.
+Ein abgebrochener Commit kann einen gestagten Changelog hinterlassen: Ursache
+beheben und den Commit gezielt abschließen, bevor Publish erneut startet.
+
+Prüfung: `python -m unittest discover -s tests/python -p test_changelog.py -v`
+aus einer aktivierten Testumgebung. Die Tests verwenden temporäre
+Git-Repositories und lokale Remotes, ohne Netzwerk oder echte Releases.

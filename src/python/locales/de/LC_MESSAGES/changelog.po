@@ -1,0 +1,73 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "Generate a changelog from release tags."
+msgstr "Erstellt einen Changelog aus Release-Tags."
+
+msgid "Write the changelog without committing."
+msgstr "Schreibt den Changelog ohne Commit."
+
+msgid "Print a preview without writing a file."
+msgstr "Zeigt eine Vorschau, ohne eine Datei zu schreiben."
+
+msgid "Write, commit and push the changelog."
+msgstr "Schreibt, committet und pusht den Changelog."
+
+msgid "Output file inside the current repository."
+msgstr "Ausgabedatei innerhalb des aktuellen Repositorys."
+
+msgid "Fetch the complete Git history and tags first."
+msgstr "Lade zuerst die vollständige Git-Historie samt Tags."
+
+msgid "The output must be a regular file in an existing directory."
+msgstr "Wähle eine normale Datei in einem vorhandenen Verzeichnis."
+
+msgid "The output must be inside the working tree, outside .git."
+msgstr "Wähle eine Datei im Arbeitsbaum außerhalb von .git."
+
+msgid "Commit or stash tracked changes before publishing."
+msgstr "Committe oder sichere vorhandene Änderungen vor dem Veröffentlichen."
+
+msgid "The Git index must be empty before publishing."
+msgstr "Leere den Git-Index vor dem Veröffentlichen."
+
+msgid "No release tags found on the current branch."
+msgstr "Auf dem aktuellen Branch wurden keine Release-Tags gefunden."
+
+msgid "Breaking changes"
+msgstr "Inkompatible Änderungen"
+
+msgid "Features"
+msgstr "Neue Funktionen"
+
+msgid "Fixes"
+msgstr "Fehlerkorrekturen"
+
+msgid "Performance"
+msgstr "Geschwindigkeit"
+
+msgid "Other changes"
+msgstr "Weitere Änderungen"
+
+msgid "Documentation"
+msgstr "Dokumentation"
+
+msgid "No user-facing changes recorded."
+msgstr "Keine Änderungen für Anwender verzeichnet."
+
+msgid "Generated from release tags and Conventional Commits."
+msgstr "Aus Release-Tags und Conventional Commits erzeugt."
+
+msgid "Changelog updated: {path}"
+msgstr "Changelog aktualisiert: {path}"
+
+msgid "Changelog failed: {reason}"
+msgstr "Changelog fehlgeschlagen: {reason}"
+
+msgid "Show this help and exit."
+msgstr "Zeigt diese Hilfe und beendet das Script."
+
+msgid "Examples:"
+msgstr "Beispiele:"
