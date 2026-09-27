@@ -179,11 +179,12 @@ Kopierschleife zurück und hängt den Testlauf auf.
 
 ### `dockerhub-readme.sh` — README nach Docker Hub übertragen
 
-`src/bash/dockerhub-readme.sh` delegiert an den gemeinsamen `py-run.sh`, der
-eine eigene Werkzeug-`.venv` vorbereitet und anschließend startet:
-`src/python/dockerhub-readme.py`. Das Python-Script konvertiert relative Markdown-Bild- und
+`src/bash/dockerhub-readme.sh` ist ein relativer Symlink auf `../python/py-run.py`.
+Der gemeinsame Runner erkennt das Werkzeug am Aufrufnamen und richtet
+eine eigene Werkzeug-`.venv` ein, bevor er
+`src/python/dockerhub-readme.py` startet. Das Python-Script konvertiert relative Markdown-Bild- und
 Dokumentlinks in absolute GitHub-URLs und aktualisiert die Repository-Übersicht.
-Python 3.11+ und Pandoc müssen vorhanden sein. Der Bash-Einstieg legt
+Python 3.11+ und Pandoc müssen vorhanden sein. Der gemeinsame Python-Runner legt
 `${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/dockerhub-readme/.venv`
 bei Bedarf an und installiert fehlende Pakete gemäß
 `src/python/dockerhub-readme.requirements.txt`; fehlendes pip ergänzt er über
@@ -317,6 +318,7 @@ Git-Repositories und lokale Remotes, ohne Netzwerk oder echte Releases.
 ./src/bash/py-run.sh --help
 ./src/bash/py-run.sh --list
 ./src/bash/py-run.sh --run changelog --dry-run
+./src/bash/changelog.sh --dry-run
 ./src/bash/py-run.sh --run dockerhub-readme --preview
 ```
 
@@ -327,10 +329,24 @@ Argumente, auch `--help`, gehören dem ausgewählten Skript. Unbekannte Skripte
 und Runner-Argumente enden mit Status 2. Der Exit-Code des Werkzeugs bleibt erhalten.
 Ohne Argumente erscheint die Hilfe. Hilfe und Liste installieren nichts.
 
-Der Runner benötigt Python ab 3.11; `PYTHON_BOOTSTRAP` wählt den Interpreter.
-Changelog bleibt unabhängig davon direkt mit Python ab 3.9 ausführbar und
-benötigt keine venv. Reine Standardbibliothek wird auch über den Runner direkt
-gestartet. Benötigt ein Werkzeug Pakete, stehen sie einmalig in der benachbarten
+Benannte Symlinks auf `../python/py-run.py` sind ebenfalls möglich, z.B.
+`src/bash/dockerhub-readme.sh` und `src/bash/changelog.sh`. Der Runner leitet den Werkzeugnamen aus dem
+Symlinknamen ab (`.sh` ist optional) und reicht alle Argumente unverändert an
+das Werkzeug weiter. Ein Symlink selbst kann keine Argumente enthalten.
+Die bestehenden Aufrufe `dockerhub-readme.sh --help` und `--preview` bleiben
+gültig. Den Link direkt ausführen, nicht mit `bash dockerhub-readme.sh`:
+Sein Ziel ist jetzt ein ausführbares Python-Skript.
+
+
+Der Runner und Changelog funktionieren mit Python ab 3.9, auch beim direkten
+Aufruf `python3 src/python/py-run.py -r changelog`. Reine Standardbibliothek
+benötigt keine venv. Erst die Einrichtung von Paketabhängigkeiten verlangt
+Python ab 3.11. Der Python-Runner sucht dafür automatisch einen passenden
+installierten Interpreter im PATH. Das gilt auch beim direkten `.py`-Aufruf
+unter Python 3.9. `PYTHON_BOOTSTRAP` überschreibt die Auswahl für die
+Paketumgebung; der Bash-Einstieg verwendet ihn auch zum Start des Runners.
+Die Werkzeug-venv wird bei Bedarf automatisch angelegt, mit Paketen bestückt
+und wiederverwendet. Nur Python selbst muss bereits installiert sein. Benötigt ein Werkzeug Pakete, stehen sie einmalig in der benachbarten
 `<name>.requirements.txt`. Der Runner verwaltet dafür ausschließlich
 `${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/<name>/.venv`; die Projektumgebung
 bleibt unberührt. Erstinstallation kann Netzwerk benötigen. Wiederholte Aufrufe

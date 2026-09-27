@@ -13,15 +13,6 @@ export PROJECTTOOLS_RUNNER_NAME="${APPNAME}"
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly SCRIPT_DIR
-BOOTSTRAP_PYTHON="${PYTHON_BOOTSTRAP:-python3}"
-if [[ -z ${PYTHON_BOOTSTRAP:-} ]] && ! "${BOOTSTRAP_PYTHON}" -c \
-    'import sys; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
-    for CANDIDATE in python3.14 python3.13 python3.12 python3.11; do
-        if command -v "${CANDIDATE}" >/dev/null 2>&1; then
-            BOOTSTRAP_PYTHON="${CANDIDATE}"
-            break
-        fi
-    done
-fi
-readonly BOOTSTRAP_PYTHON
+# Interpreterwahl für Paketumgebungen liegt zentral im Python-Runner.
+readonly BOOTSTRAP_PYTHON="${PYTHON_BOOTSTRAP:-python3}"
 exec "${BOOTSTRAP_PYTHON}" "${SCRIPT_DIR}/../python/py-run.py" "$@"

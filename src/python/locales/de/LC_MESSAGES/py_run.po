@@ -24,8 +24,8 @@ msgstr "Verfügbare Skripte anzeigen."
 msgid "Own virtual environment"
 msgstr "Eigene virtuelle Umgebung"
 
-msgid "Python 3.11 or newer is required. Set PYTHON_BOOTSTRAP to a suitable interpreter."
-msgstr "Python ab 3.11 ist erforderlich. Setze PYTHON_BOOTSTRAP auf einen passenden Interpreter."
+msgid "Package setup requires an installed Python 3.11 or newer. Install a suitable Python or set PYTHON_BOOTSTRAP to its executable."
+msgstr "Die Paketeinrichtung benötigt ein installiertes Python ab 3.11. Installiere ein passendes Python oder setze PYTHON_BOOTSTRAP auf dessen ausführbare Datei."
 
 msgid "Run a script; remaining arguments belong to that script."
 msgstr "Skript starten; weitere Argumente an das Skript weiterreichen."

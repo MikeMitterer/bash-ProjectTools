@@ -14,6 +14,7 @@ import gettext
 import hashlib
 import os
 import runpy
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,7 @@ from pathlib import Path
 from colors import HelpFormatter, Theme
 
 _ = gettext.translation(
-    "py_run", localedir=Path(__file__).parent / "locales", fallback=True
+    "py_run", localedir=Path(__file__).resolve().parent / "locales", fallback=True
 ).gettext
 ROOT = Path(__file__).resolve().parent
 
@@ -51,7 +52,7 @@ class ScriptArgumentParser(argparse.ArgumentParser):
 def parse_args(arguments: list[str]) -> argparse.Namespace:
     """Runner-Optionen; alles nach dem Werkzeugnamen geht unverändert weiter."""
     parser = ScriptArgumentParser(
-        prog=os.environ.get("PROJECTTOOLS_RUNNER_NAME", "py-run.sh"),
+        prog=os.environ.get("PROJECTTOOLS_RUNNER_NAME", Path(sys.argv[0]).name),
         description=_("List and run ProjectTools Python scripts."),
         formatter_class=HelpFormatter,
         add_help=False,
@@ -94,6 +95,30 @@ def run_command(arguments: list[str]) -> bool:
     )
 
 
+def bootstrap_python() -> Path:
+    """Wählt für Paketumgebungen ein vorhandenes Python; installiert Python nicht.
+
+    PYTHON_BOOTSTRAP ist ein expliziter Override. Ohne Override werden der
+    laufende Interpreter und danach bekannte Python-Namen im PATH geprüft.
+    """
+    override = os.environ.get("PYTHON_BOOTSTRAP")
+    candidates = [override] if override else [
+        sys.executable, "python3.14", "python3.13", "python3.12", "python3.11", "python3"
+    ]
+    for candidate in dict.fromkeys(candidates):
+        interpreter = shutil.which(candidate)
+        if interpreter and run_command([
+            interpreter, "-c", "import sys; sys.exit(sys.version_info < (3, 11))"
+        ]):
+            return Path(interpreter)
+    raise RuntimeError(
+        _(
+            "Package setup requires an installed Python 3.11 or newer. "
+            "Install a suitable Python or set PYTHON_BOOTSTRAP to its executable."
+        )
+    )
+
+
 def tool_python(engine: Path, arguments: list[str]) -> Path:
     """Hilfe und Standardbibliothek direkt, sonst isolierte venv mit Requirements.
 
@@ -107,6 +132,7 @@ def tool_python(engine: Path, arguments: list[str]) -> Path:
         or any(arg in {"-h", "--help"} for arg in arguments)
     ):
         return Path(sys.executable)
+    bootstrap = bootstrap_python()
     # Keine Fachaktion auslösen: run_name ist ausdrücklich nicht __main__.
     module = runpy.run_path(str(engine))
     prepare = module.get("prepare_cli")
@@ -123,7 +149,7 @@ def tool_python(engine: Path, arguments: list[str]) -> Path:
         )
     interpreter = venv / "bin/python"
     if not interpreter.exists():
-        if not run_command([sys.executable, "-m", "venv", str(venv)]):
+        if not run_command([str(bootstrap), "-m", "venv", str(venv)]):
             raise RuntimeError(
                 _("Could not create .venv. Check Python's venv support and directory permissions.")
             )
@@ -188,8 +214,13 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
 
 def main(arguments: list[str]) -> int:
     """Listet oder übergibt Prozess, Argumente und Exit-Code an das Werkzeug."""
-    options = parse_args(arguments)
     available = scripts()
+    # Symlinks wie bash/dockerhub-readme.sh wählen das Werkzeug über ihren Namen.
+    invoked_name = Path(sys.argv[0]).stem
+    if invoked_name in available:
+        os.environ.setdefault("PROJECTTOOLS_APPNAME", Path(sys.argv[0]).name)
+        arguments = ["--run", invoked_name, *arguments]
+    options = parse_args(arguments)
     if options.list:
         theme = Theme()
         print(
@@ -213,13 +244,6 @@ def main(arguments: list[str]) -> int:
         report_error(_("Unknown script: {name}. Use --list.").format(name=name))
         return 2
     try:
-        if sys.version_info < (3, 11):
-            raise RuntimeError(
-                _(
-                    "Python 3.11 or newer is required. Set PYTHON_BOOTSTRAP to a "
-                    "suitable interpreter."
-                )
-            )
         interpreter = tool_python(available[name], forwarded)
         os.execv(str(interpreter), [str(interpreter), str(available[name]), *forwarded])
     except (OSError, RuntimeError) as error:

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import gettext
+import os
 import re
 import subprocess
 import sys
@@ -55,6 +56,7 @@ class ScriptArgumentParser(argparse.ArgumentParser):
 def parse_args(arguments: list[str]) -> argparse.Namespace:
     """Liest die einzige Optionsdefinition für Bash und Python."""
     parser = ScriptArgumentParser(
+        prog=os.environ.get("PROJECTTOOLS_APPNAME", Path(__file__).name),
         description=_("Generate a changelog from release tags."),
         formatter_class=HelpFormatter,
         add_help=False,
