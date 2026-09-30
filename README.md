@@ -362,10 +362,30 @@ keine Fachaktion aus. Für weitere Werkzeuge wird kein Bootstrap kopiert.
 Der bisherige `dockerhub-readme.sh` bleibt als kompatibler Alias erhalten.
 Seine gesamte Umgebungseinrichtung liegt im gemeinsamen Runner.
 
+## Python-Paket für Projektumgebungen
+
+Die wiederverwendbaren Python-Module liegen unter
+`src/python/projecttools/`. `projecttools.ui.colors` enthält Farben und
+Argparse-Formatierung, `projecttools.git_access` den Git-Zugriff des
+Changelog-Werkzeugs. Die ausführbaren Werkzeuge bleiben unter `src/python/`
+und funktionieren weiterhin direkt über Python und `py-run.sh`.
+
+Für Python-Skripte in anderen Projekten das Paket in deren eigener venv
+installieren:
+
+```bash
+.venv/bin/python -m pip install -e ./.libs/ProjectTools
+```
+
+Danach ist `from projecttools.ui.colors import HelpFormatter, Theme` ohne
+maschinenabhängigen Pfad oder `sys.path`-Änderung möglich. Die Installation
+gehört zur Umgebung des konsumierenden Projekts; der ProjectTools-Runner
+ändert diese Umgebung nicht.
+
 ## CLI-Themes und Abstände
 
 Die drei eigenständigen Dateien MakeLib `colours.mk`, BashLib
-`src/colors.lib.sh` und ProjectTools `src/python/colors.py` verwenden dieselbe
+`src/colors.lib.sh` und ProjectTools `src/python/projecttools/ui/colors.py` verwenden dieselbe
 Palette und Theme-Auswahl: `classic` (Standard), `ocean`, `earth`, `night`,
 `mono`, `sunset`, `forest`, `neon`, `shell`. Ein unbekannter Name verwendet
 `classic`. Die Auswahl kann wie bisher in der jeweiligen Datei umgestellt
@@ -405,7 +425,7 @@ keine ANSI-Farben aus. Make berücksichtigt `NO_COLOR` und behält seine bisheri
 TERM-basierte Farberkennung. Bash-Grundkonstanten bleiben aus Kompatibilität
 unveränderte Escape-Strings für `printf '%b'` oder `echo -e`.
 
-Python verwendet `from colors import HelpFormatter, Theme`; der Formatter
+Python verwendet `from projecttools.ui.colors import HelpFormatter, Theme`; der Formatter
 liest die Optionen aus argparse. `Theme().line(label, description)` formatiert
 eine einzelne Zeile. `styled(text, color, stream)` bleibt für vorhandene
 Python-Farbaufrufe und `PROJECTTOOLS_COLOR_*` verfügbar.

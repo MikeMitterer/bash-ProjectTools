@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from colors import THEMES, Theme
+from projecttools.ui.colors import THEMES, Theme
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "src/bash/py-run.sh"

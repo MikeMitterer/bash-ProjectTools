@@ -3,8 +3,8 @@
 # changelog.py — Git-Releases als Markdown aufbereiten
 #
 # Aufruf: python3 src/python/changelog.py -g | -n | -p
-# Standardbibliothek; Git-Zugriff liegt in git_access/changelog.py.
-# Farben und Abstände: colors.py, abgestimmt mit colours.mk und colors.lib.sh.
+# Standardbibliothek; Git-Zugriff liegt in projecttools/git_access/changelog.py.
+# Farben und Abstände: projecttools/colors.py, abgestimmt mit den Shell-Themes.
 # Beispiel: MAKE_THEME=ocean python3 changelog.py --help
 # Direkter Aufruf ohne venv; optional py-run.sh --run changelog --help.
 # ------------------------------------------------------------------------------
@@ -19,9 +19,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-from colors import HelpFormatter, Theme
-from colors import styled as styled
-from git_access.changelog import GitRepository
+from projecttools.ui.colors import HelpFormatter, Theme
+from projecttools.ui.colors import styled as styled
+from projecttools.git_access.changelog import GitRepository
 
 _ = gettext.translation(
     "changelog", localedir=Path(__file__).parent / "locales", fallback=True

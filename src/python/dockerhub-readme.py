@@ -28,8 +28,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from colors import HelpFormatter, Theme
-from colors import styled as styled
+from projecttools.ui.colors import HelpFormatter, Theme
+from projecttools.ui.colors import styled as styled
 
 if TYPE_CHECKING:
     import httpx

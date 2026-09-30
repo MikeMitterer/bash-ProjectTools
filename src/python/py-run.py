@@ -19,7 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from colors import HelpFormatter, Theme
+from projecttools.ui.colors import HelpFormatter, Theme
 
 _ = gettext.translation(
     "py_run", localedir=Path(__file__).resolve().parent / "locales", fallback=True
