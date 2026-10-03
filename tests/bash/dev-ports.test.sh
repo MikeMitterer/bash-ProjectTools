@@ -345,6 +345,24 @@ testMehrfachaufrufGleichzeitig() {
     teardownFixture
 }
 
+testLaeuftOhneBashLib() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    startListener "${FIXTURE}/project" "${_PORT}"
+    local _RAW
+    _RAW="$(cd "${FIXTURE}/project" && BASH_LIBS="${FIXTURE}/keine-bashlib" "${SCRIPT_UNDER_TEST}" --help 2>&1)"
+    EXIT_CODE=$?
+    OUTPUT="$(printf '%s' "${_RAW}" | sed $'s/\x1b\\[[0-9;]*m//g')"
+    assertThat "ohne BashLib: Hilfe, Exit 0" exitCodeIs 0
+    assertThat "ohne BashLib: Optionen sichtbar" outputContains "-k | --kill"
+    _RAW="$(cd "${FIXTURE}/project" && BASH_LIBS="${FIXTURE}/keine-bashlib" "${SCRIPT_UNDER_TEST}" --kill --port "${_PORT}" 2>&1)"
+    EXIT_CODE=$?
+    OUTPUT="$(printf '%s' "${_RAW}" | sed $'s/\x1b\\[[0-9;]*m//g')"
+    assertThat "ohne BashLib: --kill Exit 0" exitCodeIs 0
+    assertThat "ohne BashLib: Port frei" isFree "${_PORT}"
+    teardownFixture
+}
+
 testPortAusConfig() {
     setupFixture
     local -r _PORT="$(freePort)"
@@ -371,6 +389,7 @@ runAll() {
     testVerwaisteOvermindSocketWirdEntfernt
     testMehrfachaufrufNacheinander
     testMehrfachaufrufGleichzeitig
+    testLaeuftOhneBashLib
     testPortAusConfig
 
     echo
