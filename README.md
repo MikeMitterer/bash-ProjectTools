@@ -396,6 +396,10 @@ So geht `--kill` vor:
    (Standard 5) SIGKILL.
 5. Danach muss jeder Port frei sein, sonst endet das Script mit Exit 1.
 
+`dev-ports.sh` läuft auch ohne BashLib, dann mit einfachen Farben statt des
+gemeinsamen Themes. So funktioniert `make dev-down` auch in einem frischen
+Klon eines öffentlichen Projekts, denn BashLib ist privat.
+
 `--kill` lässt sich beliebig oft aufrufen, auch gleichzeitig. Ist nichts mehr
 zu tun, meldet es die Ports als frei und endet mit Exit 0.
 

@@ -39,10 +39,29 @@ set -euo pipefail
 
 # Logische Pfadaufloesung beibehalten (kein pwd -P) — der Fallback muss auch
 # ueber einen .libs/ProjectTools-Symlink funktionieren (.libs/BashLib daneben)
-BASH_LIBS="${BASH_LIBS:-$(cd "$(dirname "$0")/../../../BashLib/src" && pwd)}"
+BASH_LIBS="${BASH_LIBS:-$(cd "$(dirname "$0")/../../../BashLib/src" 2>/dev/null && pwd || true)}"
 
-if [[ "${__COLORS_LIB__:=""}" == "" ]]; then . "${BASH_LIBS}/colors.lib.sh"; fi
-if [[ "${__TOOLS_LIB__:=""}"  == "" ]]; then . "${BASH_LIBS}/tools.lib.sh";  fi
+# ProjectTools ist oeffentlich, BashLib nicht. Damit `make dev-down` auch in
+# einem frischen Klon funktioniert, laeuft das Script ohne BashLib weiter —
+# dann mit einfachen Farben statt des gemeinsamen Themes.
+if [[ -r "${BASH_LIBS}/colors.lib.sh" && -r "${BASH_LIBS}/tools.lib.sh" ]]; then
+    if [[ "${__COLORS_LIB__:=""}" == "" ]]; then . "${BASH_LIBS}/colors.lib.sh"; fi
+    if [[ "${__TOOLS_LIB__:=""}"  == "" ]]; then . "${BASH_LIBS}/tools.lib.sh";  fi
+else
+    RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'; LIGHT_BLUE='\033[1;34m'; CYAN='\033[0;36m'; NC='\033[0m'
+
+    # Ersatz fuer usageLine aus BashLib: Option und Beschreibung in Spalten.
+    #
+    # Params:
+    #   $1 - Option(en), z.B. "-s | --status"
+    #   $2 - Beschreibung
+    usageLine() {
+        local _OPTIONS="$1"
+        _OPTIONS="${_OPTIONS%"${_OPTIONS##*[![:space:]]}"}"
+        printf '       %-22s %b\n' "${_OPTIONS}" "$2"
+    }
+fi
 
 APPNAME="$(basename "$0")"
 readonly APPNAME
