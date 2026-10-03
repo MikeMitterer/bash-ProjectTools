@@ -108,6 +108,7 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |
 | `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
 | `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
+| `src/bash/dev-ports.sh` | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
 
 Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
 `npm publish` überall dort, wo veröffentlicht wird:
@@ -361,6 +362,50 @@ keine Fachaktion aus. Für weitere Werkzeuge wird kein Bootstrap kopiert.
 
 Der bisherige `dockerhub-readme.sh` bleibt als kompatibler Alias erhalten.
 Seine gesamte Umgebungseinrichtung liegt im gemeinsamen Runner.
+
+### `dev-ports.sh` — Ports des Dev-Stacks freigeben
+
+Stürzt overmind oder eine App ab, belegen übrig gebliebene Prozesse die Ports
+weiter, etwa ein uvicorn-Reloader oder ein Vite-Prozess. `make dev-down`
+erreicht sie dann nicht mehr, und der nächste `make dev-up` scheitert mit
+„address in use“. `dev-ports.sh` zeigt, wer die Ports belegt, und beendet
+diese Prozesse samt Kindprozessen.
+
+Aufruf im Projekt-Root:
+
+```bash
+dev-ports.sh --example > .dev-ports.conf.sh   # Ports aus Procfile.dev vorschlagen
+dev-ports.sh --status                          # ob und von wem die Ports belegt sind
+dev-ports.sh --kill --dry-run                  # zeigen, was beendet würde
+dev-ports.sh --kill                            # beenden und prüfen, dass die Ports frei sind
+dev-ports.sh --kill --port 8000                # nur ein Port, ohne Config
+```
+
+So geht `--kill` vor:
+
+1. Für jeden Port die lauschenden Prozesse suchen (`lsof`).
+2. Nur eigene Prozesse beenden, deren Arbeitsverzeichnis im Projekt liegt.
+   Andere, etwa Docker bei `make up` oder eine App aus einem anderen Projekt,
+   werden gemeldet und laufen weiter. `--any-dir` hebt die Projektgrenze auf,
+   Prozesse anderer Benutzer bleiben immer unberührt.
+3. Lauscher und Kindprozesse erhalten SIGTERM, nach `--timeout` Sekunden
+   (Standard 5) SIGKILL.
+4. Danach muss jeder Port frei sein, sonst endet das Script mit Exit 1.
+
+Format `.dev-ports.conf.sh`:
+
+```bash
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # von dev-ports.sh gesourct
+PORTS=(5173 8000)
+```
+
+`--example` findet nur Ports, die im `Procfile.dev` als `--port N` stehen.
+Ports aus App-Konfigurationen, etwa Vite, trägt man von Hand nach.
+
+Tests: `tests/bash/dev-ports.test.sh --run` startet echte Server auf freien
+Ports und prüft unter anderem, dass Prozesse außerhalb des Projekts nicht
+beendet werden.
 
 ## Python-Paket für Projektumgebungen
 
