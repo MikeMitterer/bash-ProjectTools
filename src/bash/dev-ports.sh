@@ -334,7 +334,33 @@ overmindPids() {
 
 # Prueft, ob die Socket-Datei von overmind liegt, aber niemand sie nutzt.
 isStaleOvermindSocket() {
-    [[ -S "${OVERMIND_SOCKET}" && -z "$(lsof -t "${OVERMIND_SOCKET}" 2>/dev/null || true)" ]]
+    # Verwaist heisst: Die Datei existiert, aber niemand nimmt eine Verbindung an.
+    # lsof taugt dafuer nicht: overmind bindet relativ (./.overmind.sock), und
+    # lsof findet den Besitzer ueber den absoluten Pfad dann nicht. Verbunden
+    # wird deshalb relativ aus dem Projektverzeichnis; das umgeht auch die
+    # Laengengrenze fuer Socket-Pfade. Nur eine abgewiesene Verbindung gilt als
+    # verwaist; ohne python3 oder bei anderen Fehlern bleibt die Datei liegen,
+    # damit kein laufender Stack seinen Socket verliert.
+    [[ -S "${OVERMIND_SOCKET}" ]] || return 1
+    command -v python3 >/dev/null 2>&1 || return 1
+    local _RC=0
+    (
+        cd "${OVERMIND_SOCKET%/*}" || exit 2
+        exec python3 - "${OVERMIND_SOCKET##*/}" <<'PY'
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(1)
+try:
+    s.connect(sys.argv[1])
+except (ConnectionRefusedError, FileNotFoundError):
+    sys.exit(1)
+except OSError:
+    sys.exit(2)
+finally:
+    s.close()
+PY
+    ) 2>/dev/null || _RC=$?
+    [[ ${_RC} -eq 1 ]]
 }
 
 # Zeigt overmind-Reste dieses Projekts.

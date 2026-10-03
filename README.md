@@ -386,7 +386,9 @@ So geht `--kill` vor:
 1. Übrig gebliebene overmind- und tmux-Prozesse **dieses** Projekts beenden
    und eine verwaiste `.overmind.sock` entfernen. Sonst meldet der nächste
    `make dev-up` „Overmind is already running“. overmind anderer Projekte
-   bleibt unberührt.
+   bleibt unberührt. Verwaist ist die Datei, wenn niemand eine Verbindung
+   annimmt; ein lebender Socket bleibt liegen. Die Prüfung braucht `python3`;
+   fehlt es, bleibt die Datei vorsichtshalber liegen.
 2. Für jeden Port die lauschenden Prozesse suchen (`lsof`).
 3. Nur eigene Prozesse beenden, deren Arbeitsverzeichnis im Projekt liegt.
    Andere, etwa Docker bei `make up` oder eine App aus einem anderen Projekt,

@@ -143,6 +143,8 @@ runScript() {
 
 outputContains() { [[ "${OUTPUT}" == *"$1"* ]]; }
 
+outputLacks() { [[ "${OUTPUT}" != *"$1"* ]]; }
+
 exitCodeIs() { [[ "${EXIT_CODE}" -eq "$1" ]]; }
 
 setupFixture() {
@@ -306,6 +308,38 @@ testVerwaisteOvermindSocketWirdEntfernt() {
     teardownFixture
 }
 
+# Ein lebender Socket bleibt liegen. Wie overmind relativ gebunden: lsof findet
+# den Besitzer ueber den absoluten Pfad dann nicht (StockPortfolio T-86).
+testLebenderOvermindSocketBleibt() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    (
+        cd "${FIXTURE}/project" || exit 1
+        exec python3 -c "
+import socket, time
+s = socket.socket(socket.AF_UNIX)
+s.bind('.overmind.sock')
+s.listen(5)
+time.sleep(60)
+" >/dev/null 2>&1
+    ) &
+    local -r _OWNER=$!
+    disown "${_OWNER}" 2>/dev/null || true
+    STARTED_PIDS+=("${_OWNER}")
+    local _TRY
+    for _TRY in $(seq 1 50); do
+        [[ -S "${FIXTURE}/project/.overmind.sock" ]] && break
+        sleep 0.1
+    done
+    runScript --status --port "${_PORT}"
+    assertThat "lebender Socket: --status meldet ihn nicht als verwaist" outputLacks "verwaiste"
+    runScript --kill --port "${_PORT}"
+    assertThat "lebender Socket: --kill Exit 0" exitCodeIs 0
+    assertThat "lebender Socket: --kill laesst ihn liegen" [ -S "${FIXTURE}/project/.overmind.sock" ]
+    assertThat "lebender Socket: Besitzer lebt" isAlive "${_OWNER}"
+    teardownFixture
+}
+
 testMehrfachaufrufNacheinander() {
     setupFixture
     local -r _PORT="$(freePort)"
@@ -387,6 +421,7 @@ runAll() {
     testSigtermIgnoriertFolgtSigkill
     testOvermindResteDesProjektsWerdenBeendet
     testVerwaisteOvermindSocketWirdEntfernt
+    testLebenderOvermindSocketBleibt
     testMehrfachaufrufNacheinander
     testMehrfachaufrufGleichzeitig
     testLaeuftOhneBashLib
