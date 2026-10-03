@@ -263,6 +263,88 @@ testSigtermIgnoriertFolgtSigkill() {
     teardownFixture
 }
 
+# Startet einen Prozess, dessen Kommandozeile wie overmind bzw. sein
+# tmux-Server aussieht (`exec -a` setzt argv[0]); PID in STARTED_PID.
+#
+# Params:
+#   $1 - Arbeitsverzeichnis
+#   $2 - vorgetaeuschte Kommandozeile
+startFakeOvermind() {
+    (
+        cd "$1" || exit 1
+        exec -a "$2" sleep 300
+    ) &
+    STARTED_PID=$!
+    disown "${STARTED_PID}" 2>/dev/null || true
+    STARTED_PIDS+=("${STARTED_PID}")
+    sleep 0.3
+}
+
+testOvermindResteDesProjektsWerdenBeendet() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    startFakeOvermind "${FIXTURE}/project" "tmux -C -L overmind-project-abc new -s project"
+    local -r _TMUX="${STARTED_PID}"
+    startFakeOvermind "${FIXTURE}/other" "tmux -C -L overmind-other-xyz new -s other"
+    local -r _FOREIGN="${STARTED_PID}"
+    runScript --kill --port "${_PORT}"
+    assertThat "overmind: Exit 0" exitCodeIs 0
+    assertThat "overmind: tmux-Rest des Projekts beendet" isDead "${_TMUX}"
+    assertThat "overmind: tmux eines anderen Projekts lebt" isAlive "${_FOREIGN}"
+    teardownFixture
+}
+
+testVerwaisteOvermindSocketWirdEntfernt() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${FIXTURE}/project/.overmind.sock'); s.close()"
+    runScript --kill --dry-run --port "${_PORT}"
+    assertThat "Socket: Dry-Run laesst sie liegen" [ -S "${FIXTURE}/project/.overmind.sock" ]
+    runScript --kill --port "${_PORT}"
+    assertThat "Socket: Exit 0" exitCodeIs 0
+    assertThat "Socket: verwaiste .overmind.sock entfernt" [ ! -e "${FIXTURE}/project/.overmind.sock" ]
+    teardownFixture
+}
+
+testMehrfachaufrufNacheinander() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    startListener "${FIXTURE}/project" "${_PORT}"
+    runScript --kill --port "${_PORT}"
+    assertThat "1. Aufruf: Exit 0" exitCodeIs 0
+    runScript --kill --port "${_PORT}"
+    assertThat "2. Aufruf ohne Stack: Exit 0" exitCodeIs 0
+    assertThat "2. Aufruf ohne Stack: Port frei gemeldet" outputContains "${_PORT} ist frei"
+    runScript --kill --port "${_PORT}"
+    assertThat "3. Aufruf ohne Stack: Exit 0" exitCodeIs 0
+    teardownFixture
+}
+
+testMehrfachaufrufGleichzeitig() {
+    setupFixture
+    local -r _PORT="$(freePort)"
+    startListener "${FIXTURE}/project" "${_PORT}" \
+        "CHILD = subprocess.Popen(['sleep', '300'])"
+    local -r _LISTENER="${STARTED_PID}"
+    python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.bind('${FIXTURE}/project/.overmind.sock'); s.close()"
+    local _RUNNERS=()
+    local _RUN
+    for _RUN in 1 2 3; do
+        (cd "${FIXTURE}/project" && "${SCRIPT_UNDER_TEST}" --kill --port "${_PORT}" >"${FIXTURE}/run-${_RUN}.log" 2>&1) &
+        _RUNNERS+=("$!")
+    done
+    local _FAILED=0
+    for _RUN in "${_RUNNERS[@]}"; do
+        wait "${_RUN}" || _FAILED=1
+    done
+    OUTPUT="$(cat "${FIXTURE}"/run-*.log)"
+    assertThat "3 gleichzeitige Aufrufe: alle Exit 0" [ "${_FAILED}" -eq 0 ]
+    assertThat "3 gleichzeitige Aufrufe: Port frei" isFree "${_PORT}"
+    assertThat "3 gleichzeitige Aufrufe: Lauscher beendet" isDead "${_LISTENER}"
+    assertThat "3 gleichzeitige Aufrufe: Socket entfernt" [ ! -e "${FIXTURE}/project/.overmind.sock" ]
+    teardownFixture
+}
+
 testPortAusConfig() {
     setupFixture
     local -r _PORT="$(freePort)"
@@ -285,6 +367,10 @@ runAll() {
     testDryRunBeendetNichts
     testFremdesVerzeichnisBleibtUnberuehrt
     testSigtermIgnoriertFolgtSigkill
+    testOvermindResteDesProjektsWerdenBeendet
+    testVerwaisteOvermindSocketWirdEntfernt
+    testMehrfachaufrufNacheinander
+    testMehrfachaufrufGleichzeitig
     testPortAusConfig
 
     echo

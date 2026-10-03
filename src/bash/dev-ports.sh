@@ -7,9 +7,11 @@
 # ein uvicorn-Reloader, ein Vite-Node-Prozess. `make dev-down` erreicht sie
 # dann nicht mehr, und der naechste Start scheitert mit "address in use".
 #
-# Dieses Script findet die Prozesse, die auf den konfigurierten Ports lauschen,
-# beendet sie samt Kindprozessen (erst SIGTERM, nach Ablauf der Wartezeit
-# SIGKILL) und prueft danach, dass jeder Port wirklich frei ist.
+# Dieses Script beendet zuerst uebrig gebliebene overmind- und tmux-Prozesse
+# dieses Projekts und entfernt eine verwaiste .overmind.sock. Danach findet es
+# die Prozesse, die auf den konfigurierten Ports lauschen, beendet sie samt
+# Kindprozessen (erst SIGTERM, nach Ablauf der Wartezeit SIGKILL) und prueft,
+# dass jeder Port wirklich frei ist.
 #
 # Beendet werden nur Prozesse des eigenen Benutzers, deren Arbeitsverzeichnis
 # im aktuellen Projekt liegt. Fremde Lauscher — etwa Docker bei `make up` oder
@@ -23,7 +25,7 @@
 #
 # Optionen:
 #   -s | --status          Zeigen, ob und von wem die Ports belegt sind
-#   -k | --kill            Lauschende Prozesse samt Kindprozessen beenden
+#   -k | --kill            overmind-Reste und lauschende Prozesse beenden
 #   -n | --dry-run         Mit --kill: nur anzeigen, nichts beenden
 #   -p | --port N          Nur diesen Port (mehrfach moeglich, statt Config)
 #   -a | --any-dir         Auch Prozesse ausserhalb des Projekts beenden
@@ -60,6 +62,9 @@ PROJECT_DIR="$(pwd -P)"
 readonly PROJECT_DIR
 
 readonly PROCFILE="Procfile.dev"
+readonly OVERMIND_SOCKET="${PROJECT_DIR}/.overmind.sock"
+# overmind selbst und sein tmux-Server (`tmux -C -L overmind-<projekt>-…`)
+readonly OVERMIND_PATTERN='^(overmind start|tmux .*-L overmind-)'
 readonly POLL_INTERVAL=0.2
 
 # Defaults — von Config und Optionen ueberschrieben
@@ -79,7 +84,7 @@ usage() {
     usageLine "-s | --status          " "Zeigen, ob und von wem die Ports belegt sind"
     echo
     echo -e "\t${BLUE}# Freigeben ------------------------------------------------------------${NC}"
-    usageLine "-k | --kill            " "Lauschende Prozesse samt Kindprozessen beenden"
+    usageLine "-k | --kill            " "overmind-Reste und lauschende Prozesse beenden"
     usageLine "-n | --dry-run         " "Mit --kill: nur anzeigen, nichts beenden"
     usageLine "-p | --port N          " "Nur diesen Port (mehrfach moeglich, statt Config)"
     usageLine "-a | --any-dir         " "Auch Prozesse ausserhalb des aktuellen Projekts beenden"
@@ -281,6 +286,7 @@ describeProcess() {
 showPorts() {
     local _PORT _PID
     echo -e "${CYAN}▶ Ports in ${PROJECT_DIR}${NC}"
+    showOvermind
     for _PORT in "${PORTS[@]}"; do
         local _PIDS=()
         mapfile -t _PIDS < <(listenerPids "${_PORT}")
@@ -293,6 +299,85 @@ showPorts() {
             describeProcess "${_PID}" "$(processCwd "${_PID}")"
         done
     done
+}
+
+# Gibt die PIDs von overmind und seinem tmux-Server aus, die zu diesem Projekt
+# gehoeren: eigener Benutzer, Arbeitsverzeichnis im Projekt. Nach einem
+# Absturz haelt der verwaiste tmux-Server die Socket-Datei von overmind nicht
+# mehr offen — das Arbeitsverzeichnis ist das verlaessliche Merkmal.
+overmindPids() {
+    local _PID
+    for _PID in $(pgrep -u "$(id -u)" -f "${OVERMIND_PATTERN}" 2>/dev/null || true); do
+        isInsideProject "$(processCwd "${_PID}")" && echo "${_PID}"
+    done
+    return 0
+}
+
+# Prueft, ob die Socket-Datei von overmind liegt, aber niemand sie nutzt.
+isStaleOvermindSocket() {
+    [[ -S "${OVERMIND_SOCKET}" && -z "$(lsof -t "${OVERMIND_SOCKET}" 2>/dev/null || true)" ]]
+}
+
+# Zeigt overmind-Reste dieses Projekts.
+showOvermind() {
+    local _PIDS=()
+    mapfile -t _PIDS < <(overmindPids)
+    if [[ ${#_PIDS[@]} -eq 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} overmind laeuft nicht"
+    else
+        echo -e "  ${YELLOW}●${NC} overmind laeuft"
+        local _PID
+        for _PID in "${_PIDS[@]}"; do
+            describeProcess "${_PID}" "$(processCwd "${_PID}")"
+        done
+    fi
+    if isStaleOvermindSocket; then
+        echo -e "  ${YELLOW}⚠${NC} verwaiste ${OVERMIND_SOCKET##*/} — blockiert den naechsten Start"
+    fi
+}
+
+# Beendet overmind und seinen tmux-Server samt Kindprozessen und entfernt eine
+# verwaiste Socket-Datei, die sonst den naechsten Start blockiert.
+#
+# Returns:
+#   0 wenn nichts mehr laeuft, 1 sonst
+releaseOvermind() {
+    local _PIDS=()
+    mapfile -t _PIDS < <(overmindPids)
+    local _TARGETS=()
+    local _PID
+    if [[ ${#_PIDS[@]} -eq 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} overmind laeuft nicht"
+    else
+        echo -e "  ${YELLOW}●${NC} overmind laeuft"
+        for _PID in "${_PIDS[@]}"; do
+            describeProcess "${_PID}" "$(processCwd "${_PID}")"
+            local _DESCENDANTS=()
+            mapfile -t _DESCENDANTS < <(descendantPids "${_PID}")
+            _TARGETS+=("${_DESCENDANTS[@]}" "${_PID}")
+        done
+        mapfile -t _TARGETS < <(printf '%s\n' "${_TARGETS[@]}" | awk '!SEEN[$0]++')
+    fi
+
+    if [[ "${DRY_RUN}" == true ]]; then
+        [[ ${#_TARGETS[@]} -gt 0 ]] && echo -e "      ${BLUE}ℹ${NC} Dry-Run — wuerde beenden: ${_TARGETS[*]}"
+        isStaleOvermindSocket && echo -e "      ${BLUE}ℹ${NC} Dry-Run — wuerde ${OVERMIND_SOCKET##*/} entfernen"
+        return 0
+    fi
+
+    if [[ ${#_TARGETS[@]} -gt 0 ]]; then
+        terminate "${_TARGETS[@]}" || true
+    fi
+    if isStaleOvermindSocket; then
+        rm -f "${OVERMIND_SOCKET}"
+        echo -e "      ${GREEN}✓${NC} verwaiste ${OVERMIND_SOCKET##*/} entfernt"
+    fi
+    if [[ ${#_TARGETS[@]} -gt 0 ]] && anyAlive "${_TARGETS[@]}"; then
+        echo -e "      ${RED}✗${NC} overmind laeuft weiterhin"
+        return 1
+    fi
+    [[ ${#_TARGETS[@]} -gt 0 ]] && echo -e "      ${GREEN}✓${NC} overmind beendet"
+    return 0
 }
 
 # Gibt einen Port frei.
@@ -364,6 +449,8 @@ releaseAll() {
     local _FAILED=0
     local _PORT
     echo -e "${CYAN}▶ Ports freigeben in ${PROJECT_DIR}${NC}"
+    # Zuerst overmind: Sonst koennte er beendete Apps neu starten.
+    releaseOvermind || _FAILED=1
     for _PORT in "${PORTS[@]}"; do
         releasePort "${_PORT}" || _FAILED=1
     done

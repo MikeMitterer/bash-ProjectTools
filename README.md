@@ -383,14 +383,32 @@ dev-ports.sh --kill --port 8000                # nur ein Port, ohne Config
 
 So geht `--kill` vor:
 
-1. Für jeden Port die lauschenden Prozesse suchen (`lsof`).
-2. Nur eigene Prozesse beenden, deren Arbeitsverzeichnis im Projekt liegt.
+1. Übrig gebliebene overmind- und tmux-Prozesse **dieses** Projekts beenden
+   und eine verwaiste `.overmind.sock` entfernen. Sonst meldet der nächste
+   `make dev-up` „Overmind is already running“. overmind anderer Projekte
+   bleibt unberührt.
+2. Für jeden Port die lauschenden Prozesse suchen (`lsof`).
+3. Nur eigene Prozesse beenden, deren Arbeitsverzeichnis im Projekt liegt.
    Andere, etwa Docker bei `make up` oder eine App aus einem anderen Projekt,
-   werden gemeldet und laufen weiter. `--any-dir` hebt die Projektgrenze auf,
-   Prozesse anderer Benutzer bleiben immer unberührt.
-3. Lauscher und Kindprozesse erhalten SIGTERM, nach `--timeout` Sekunden
+   werden gemeldet und laufen weiter. `--any-dir` hebt die Projektgrenze für
+   Ports auf, Prozesse anderer Benutzer bleiben immer unberührt.
+4. Prozesse und Kindprozesse erhalten SIGTERM, nach `--timeout` Sekunden
    (Standard 5) SIGKILL.
-4. Danach muss jeder Port frei sein, sonst endet das Script mit Exit 1.
+5. Danach muss jeder Port frei sein, sonst endet das Script mit Exit 1.
+
+`--kill` lässt sich beliebig oft aufrufen, auch gleichzeitig. Ist nichts mehr
+zu tun, meldet es die Ports als frei und endet mit Exit 0.
+
+Einbindung in `make dev-down`:
+
+```make
+dev-down: ## Dev-Stack stoppen und Ports freigeben
+	-@overmind quit 2>/dev/null || true
+	@"$(PROJECT_TOOLS)/bash/dev-ports.sh" --kill
+```
+
+Ein `pkill -f overmind` gehört nicht dazu: Es beendet overmind in allen
+Projekten.
 
 Format `.dev-ports.conf.sh`:
 
@@ -404,8 +422,9 @@ PORTS=(5173 8000)
 Ports aus App-Konfigurationen, etwa Vite, trägt man von Hand nach.
 
 Tests: `tests/bash/dev-ports.test.sh --run` startet echte Server auf freien
-Ports und prüft unter anderem, dass Prozesse außerhalb des Projekts nicht
-beendet werden.
+Ports und prüft unter anderem, dass Prozesse und overmind-Reste außerhalb des
+Projekts nicht beendet werden und dass mehrfache, auch gleichzeitige Aufrufe
+gelingen.
 
 ## Python-Paket für Projektumgebungen
 
