@@ -183,7 +183,19 @@ FORBIDDEN=("/\b99:\d+\b|nobody/|interne IDs")
 EOF
     runScript --config regex.conf.sh --run
     assertEquals "1" "${rc}" "Muster: Exit-Code 1"
-    assertOutputContains '(„99:100“)' "Muster: Treffer genannt"
+    assertOutputContains 'Verbotener Text „99:100“' "Muster: Treffer genannt"
+}
+
+# Die Grenze fuer Hinweisboxen kommt nur aus der Config.
+testMaxAlertsAusConfig() {
+    printf '# Demo\n\n> [!NOTE]\n> a\n\n> [!TIP]\n> b\n' > "${fixture}/boxes.md"
+    printf '# shellcheck disable=SC2034\nDOCS=("boxes.md")\n' > "${fixture}/nolimit.conf.sh"
+    runScript --config nolimit.conf.sh --run
+    assertOutputLacks "Hinweisboxen" "ohne MAX_ALERTS: keine Grenze"
+    printf '# shellcheck disable=SC2034\nDOCS=("boxes.md")\nMAX_ALERTS=1\n' > "${fixture}/limit.conf.sh"
+    runScript --config limit.conf.sh --run
+    assertOutputContains "höchstens 1 (MAX_ALERTS)" "MAX_ALERTS=1: Grenze genannt"
+    assertEquals "0" "${rc}" "MAX_ALERTS: zu pruefen, kein Problem"
 }
 
 testUngueltigerAusdruckBrichtAb() {
@@ -212,6 +224,7 @@ runAll() {
     testConfigOptionGewinnt
     testRunMitRegulaeremAusdruck
     testUngueltigerAusdruckBrichtAb
+    testMaxAlertsAusConfig
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then
