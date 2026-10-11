@@ -186,6 +186,18 @@ EOF
     assertOutputContains 'Verbotener Text „99:100“' "Muster: Treffer genannt"
 }
 
+# REQUIRED allein genuegt als Config; mit Pfaden bei --run bleiben die
+# Pflichtdateien aussen vor.
+testRequiredAusConfig() {
+    printf '# shellcheck disable=SC2034\nREQUIRED=("./README.md" "docs/missing.md|im README verlinkt")\n' > "${fixture}/req.conf.sh"
+    runScript --config req.conf.sh --run
+    assertEquals "1" "${rc}" "REQUIRED: fehlende Pflichtdatei ergibt Exit-Code 1"
+    assertOutputContains "Grund: im README verlinkt" "REQUIRED: Grund genannt"
+    assertOutputContains "2 Pflichtdateien geprüft" "REQUIRED: beide Eintraege geprueft"
+    runScript --config req.conf.sh --run README.md
+    assertOutputLacks "Pflichtdateien" "--run mit Pfad: keine Pflichtdateien"
+}
+
 # Die Grenze fuer Hinweisboxen kommt nur aus der Config.
 testMaxAlertsAusConfig() {
     printf '# Demo\n\n> [!NOTE]\n> a\n\n> [!TIP]\n> b\n' > "${fixture}/boxes.md"
@@ -225,6 +237,7 @@ runAll() {
     testRunMitRegulaeremAusdruck
     testUngueltigerAusdruckBrichtAb
     testMaxAlertsAusConfig
+    testRequiredAusConfig
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then

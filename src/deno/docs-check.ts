@@ -19,6 +19,9 @@
  *                          /\bP[UG]ID\b/ oder /nobody:users/i)
  *   --exclude PFAD         Datei oder Ordner (relativ zur Wurzel) auslassen
  *   --max-alerts N         Höchstens N Hinweisboxen je Dokument (ohne: keine Grenze)
+ *   --require EINTRAG      Pflichtdatei: NAME (irgendwo), PFAD oder MUSTER (* und **)
+ *                          ab Root, optional |GRUND; zählt nur versioniert,
+ *                          nicht leer und als .md mit Überschrift
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
  *
@@ -961,11 +964,106 @@ export function expandDocuments(
   return { documents, missing };
 }
 
+// ------------------------------------------------------------ Pflichtdateien
+
+/** Eine Pflichtdatei aus der Config: Name, Pfad oder Muster, mit optionalem Grund. */
+export interface Required {
+  entry: string;
+  reason: string;
+  matcher: RegExp;
+}
+
+/** Ergebnis einer Pflichtdatei: gültige Treffer oder warum es keinen gibt. */
+export interface RequiredResult {
+  required: Required;
+  found: string[];
+  /** Gesetzt, wenn kein gültiger Treffer existiert. */
+  failure?: string;
+}
+
+/**
+ * Glob als regulärer Ausdruck: `**` beliebig viele Ordner, `*` beliebige
+ * Zeichen ohne `/`, `?` ein Zeichen ohne `/`.
+ */
+function globToRegExp(glob: string): RegExp {
+  let pattern = "";
+  for (let index = 0; index < glob.length; index++) {
+    const char = glob[index];
+    if (char === "*" && glob[index + 1] === "*") {
+      const slash = glob[index + 2] === "/";
+      pattern += slash ? "(?:.*/)?" : ".*";
+      index += slash ? 2 : 1;
+    } else if (char === "*") pattern += "[^/]*";
+    else if (char === "?") pattern += "[^/]";
+    else pattern += char.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${pattern}$`);
+}
+
+/**
+ * Liest einen Config-Eintrag `NAME|PFAD|MUSTER[|GRUND]`. Ohne `/` gilt der
+ * Eintrag für den Dateinamen an beliebiger Stelle im Projekt, mit `/` für den
+ * Pfad ab dem Projekt-Root; `./README.md` meint also nur das README im Root.
+ */
+export function parseRequired(entry: string): Required | string {
+  const [raw, ...reason] = entry.split("|");
+  const path = raw.trim().replace(/^\.\//, "");
+  if (!path) return `leere Pflichtdatei: ${entry}`;
+  const anywhere = !raw.trim().includes("/");
+  const glob = globToRegExp(path);
+  return {
+    entry: raw.trim(),
+    reason: reason.join("|").trim(),
+    matcher: anywhere ? new RegExp(glob.source.replace(/^\^/, "(?:^|/)")) : glob,
+  };
+}
+
+/**
+ * Warum eine vorhandene Datei nicht als Pflichtdatei zählt: leer, oder als
+ * Markdown ohne Überschrift. `undefined` heißt gültig.
+ */
+function invalidReason(project: Project, path: string): string | undefined {
+  const text = readText(`${project.root}/${path}`);
+  if (!text.trim()) return "ist leer";
+  if (
+    DOC_SUFFIXES.has(suffix(path)) &&
+    !proseLines(text).some(([, line]) => /^#{1,6}\s+\S/.test(line))
+  ) {
+    return "hat keine Überschrift (z. B. „# Titel“)";
+  }
+  return undefined;
+}
+
+/**
+ * Prüft Pflichtdateien gegen die versionierten Dateien des Projekts. Eine
+ * Datei, die nur auf der Platte liegt, zählt nicht: Im Repository fehlt sie.
+ */
+export function checkRequired(project: Project, required: Required[]): RequiredResult[] {
+  return required.map((item) => {
+    const matches = project.files.filter((path) => item.matcher.test(path));
+    if (!matches.length) {
+      return {
+        required: item,
+        found: [],
+        failure: "fehlt im Repository (nicht versioniert oder nicht vorhanden)",
+      };
+    }
+    const valid = matches.filter((path) => !invalidReason(project, path));
+    if (valid.length) return { required: item, found: valid };
+    return {
+      required: item,
+      found: [],
+      failure: `${matches[0]} ${invalidReason(project, matches[0])}`,
+    };
+  });
+}
+
 // ------------------------------------------------------------ Kommandozeile
 
 interface Options {
   root: string;
   forbidden: Forbidden[];
+  required: Required[];
   maxAlerts?: number;
   excludes: string[];
   placement?: string;
@@ -975,7 +1073,14 @@ interface Options {
 }
 
 function parseArgs(args: string[]): Options | string {
-  const options: Options = { root: ".", forbidden: [], excludes: [], verbose: false, inputs: [] };
+  const options: Options = {
+    root: ".",
+    forbidden: [],
+    required: [],
+    excludes: [],
+    verbose: false,
+    inputs: [],
+  };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     const value = () => {
@@ -993,7 +1098,11 @@ function parseArgs(args: string[]): Options | string {
       else if (arg === "--as") options.placement = value();
       else if (arg === "--verbose") options.verbose = true;
       else if (arg === "--config-name") options.configName = value();
-      else if (arg === "--max-alerts") {
+      else if (arg === "--require") {
+        const required = parseRequired(value());
+        if (typeof required === "string") return required;
+        options.required.push(required);
+      } else if (arg === "--max-alerts") {
         const limit = Number(value());
         if (!Number.isInteger(limit) || limit < 0) {
           return "--max-alerts braucht eine ganze Zahl ab 0";
@@ -1005,7 +1114,9 @@ function parseArgs(args: string[]): Options | string {
       return (error as Error).message;
     }
   }
-  if (!options.inputs.length) return "keine Datei und kein Ordner angegeben";
+  if (!options.inputs.length && !options.required.length) {
+    return "keine Datei, kein Ordner und keine Pflichtdatei angegeben";
+  }
   if (options.placement && options.inputs.length !== 1) return "--as gilt nur für genau eine Datei";
   return options;
 }
@@ -1045,7 +1156,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -1074,11 +1185,14 @@ function main(args: string[]): number {
 
   // Übersicht: was geprüft wurde, je Dokument mit Ergebnis.
   const source = options.configName ? ` laut ${options.configName}` : "";
-  console.log(
-    paint("1", `Dokumentprüfung: ${count(results.length, "Dokument", "Dokumente")}${source}`),
-  );
-  if (options.excludes.length) console.log(`Ausgenommen: ${options.excludes.join(", ")}`);
-  console.log();
+  const checksDocuments = options.inputs.length > 0;
+  if (checksDocuments) {
+    console.log(
+      paint("1", `Dokumentprüfung: ${count(results.length, "Dokument", "Dokumente")}${source}`),
+    );
+    if (options.excludes.length) console.log(`Ausgenommen: ${options.excludes.join(", ")}`);
+    console.log();
+  }
   const width = Math.max(
     0,
     ...results.map((result) => result.name.length),
@@ -1096,6 +1210,37 @@ function main(args: string[]): number {
     );
     const mark = failed ? paint("31", "✗") : open ? paint("33", "?") : paint("32", "✓");
     console.log(`  ${mark} ${name.padEnd(width)}   ${tally(findings)}`);
+  }
+
+  // Pflichtdateien: je Eintrag die gefundenen Dateien oder warum keine zählt.
+  const requiredResults = checkRequired(project, options.required);
+  if (requiredResults.length) {
+    console.log(
+      `${checksDocuments ? "\n" : ""}${
+        paint("1", `Pflichtdateien: ${requiredResults.length}${source}`)
+      }\n`,
+    );
+    const entryWidth = Math.max(...requiredResults.map((result) => result.required.entry.length));
+    for (const { required, found, failure } of requiredResults) {
+      const name = required.entry.padEnd(entryWidth);
+      if (!failure) {
+        const shown = found.slice(0, 3).join(", ") +
+          (found.length > 3 ? ` (+${found.length - 3} weitere)` : "");
+        console.log(`  ${paint("32", "✓")} ${name}   ${shown}`);
+        continue;
+      }
+      console.log(
+        `  ${paint("31", "✗")} ${name}   ${paint("31", failure)}${
+          required.reason ? ` · Grund: ${required.reason}` : ""
+        }`,
+      );
+      const advice = failure.startsWith("fehlt")
+        ? "Datei anlegen und committen; eine Datei nur auf der Platte zählt nicht."
+        : failure.includes("Überschrift")
+        ? "Eine Überschrift ergänzen, z. B. „# Titel“."
+        : "Inhalt ergänzen.";
+      console.log(`${" ".repeat(entryWidth + 7)}→ ${advice}`);
+    }
   }
 
   // Einzelheiten je Dokument mit Befunden.
@@ -1122,14 +1267,22 @@ function main(args: string[]): number {
   }
 
   const all = results.flatMap((result) => result.findings);
-  const problems = all.filter((finding) => finding.level === "problem").length + missing.length;
+  const failedRequired = requiredResults.filter((result) => result.failure).length;
+  const checked = [
+    ...(checksDocuments ? [count(results.length, "Dokument", "Dokumente")] : []),
+    ...(requiredResults.length
+      ? [count(requiredResults.length, "Pflichtdatei", "Pflichtdateien")]
+      : []),
+  ];
+  const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
+    failedRequired;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length;
   const verdict = problems
     ? paint("31", count(problems, "Problem", "Probleme"))
     : paint("32", "keine Probleme");
   console.log(
-    `\nErgebnis: ${count(results.length, "Dokument", "Dokumente")} geprüft · ${verdict}` +
+    `\nErgebnis: ${checked.join(" und ")} geprüft · ${verdict}` +
       (open ? ` · ${count(open, "Stelle", "Stellen")} von Hand prüfen` : ""),
   );
   if (open && !problems) console.log("Stellen zum Prüfen lassen die Prüfung nicht scheitern.");

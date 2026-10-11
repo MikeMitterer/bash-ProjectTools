@@ -10,7 +10,8 @@
 #
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
-# sourcebares Bash-Snippet (DOCS, EXCLUDE, FORBIDDEN, MAX_ALERTS); der Name wird aus dem
+# sourcebares Bash-Snippet (DOCS, EXCLUDE, FORBIDDEN, MAX_ALERTS, REQUIRED); der Name
+# wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -91,6 +92,7 @@ DOCS=()
 EXCLUDE=()
 FORBIDDEN=()
 MAX_ALERTS=""
+REQUIRED=()
 
 # Zeigt die Verwendungshinweise an.
 #
@@ -170,15 +172,30 @@ FORBIDDEN=(
 # Optional: hoechstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
 # Dokument. Leer oder nicht gesetzt: keine Grenze.
 MAX_ALERTS=""
+
+# Dateien, die es geben muss, je optional mit "|<grund>". Sie zaehlen nur,
+# wenn sie versioniert und nicht leer sind; .md-Dateien brauchen mindestens
+# eine Ueberschrift ("# Titel").
+#   "LICENSE"             ohne Pfad: irgendwo im Projekt
+#   "docs/user-guide.md"  mit Pfad: genau dort, relativ zum Projekt-Root
+#   "./docs/**/*.md"      Muster: mindestens ein Treffer (* ein Ordner, ** beliebig tief)
+REQUIRED=(
 EOF
+    local required
+    for required in README.md LICENSE LICENSE.md CHANGELOG.md; do
+        if git ls-files --error-unmatch -- "${required}" >/dev/null 2>&1; then
+            printf '    "%s"\n' "${required}"
+        fi
+    done
+    echo ')'
 }
 
 # Laedt die Config, falls vorhanden.
 #
 # Returns:
-#   0 - Config geladen und DOCS gesetzt
+#   0 - Config geladen, DOCS oder REQUIRED gesetzt
 #   1 - Config fehlt
-#   2 - Config ohne DOCS-Eintraege
+#   2 - Config ohne DOCS- und REQUIRED-Eintraege
 loadConfig() {
     local config_file="$1"
 
@@ -187,19 +204,22 @@ loadConfig() {
     # shellcheck source=/dev/null
     . "${config_file}"
 
-    [[ ${#DOCS[@]} -gt 0 ]] || return 2
+    [[ ${#DOCS[@]} -gt 0 || ${#REQUIRED[@]} -gt 0 ]] || return 2
 }
 
-# Startet die Deno-Pruefung mit EXCLUDE und FORBIDDEN aus der Config.
+# Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN und MAX_ALERTS aus der
+# Config, auf Wunsch auch mit REQUIRED.
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
 #   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
-#   $3... - zu pruefende Dateien oder Ordner
+#   $3    - "true", um die Pflichtdateien aus REQUIRED zu pruefen
+#   $4... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
     local config_name="$2"
-    shift 2
+    local with_required="$3"
+    shift 3
 
     local args=(--root .) entry
     [[ -n "${config_name}" ]] && args+=(--config-name "${config_name}")
@@ -210,6 +230,11 @@ runCheck() {
         args+=(--forbid "${entry}")
     done
     [[ -n "${MAX_ALERTS}" ]] && args+=(--max-alerts "${MAX_ALERTS}")
+    if [[ "${with_required}" == "true" ]]; then
+        for entry in "${REQUIRED[@]+"${REQUIRED[@]}"}"; do
+            args+=(--require "${entry}")
+        done
+    fi
     [[ "${verbose}" == "true" ]] && args+=(--verbose)
 
     deno run --quiet --allow-read --allow-run=git "${DOCS_CHECK_TS}" "${args[@]}" "$@"
@@ -283,24 +308,27 @@ _RC=0
 loadConfig "${config_file}" || _RC=$?
 
 # Mit Pfaden genuegt eine fehlende Config: Dann gibt es nur keine verbotenen
-# Begriffe und Ausnahmen.
+# Begriffe und Ausnahmen. Pflichtdateien gehoeren zum ganzen Projekt und werden
+# nur ohne Pfade geprueft.
+with_required="false"
 if [[ ${#paths[@]} -eq 0 ]]; then
     if [[ ${_RC} -ne 0 ]]; then
         {
             if [[ ${_RC} -eq 1 ]]; then
                 echo -e "${RED}Fehler:${NC} Config '${config_file}' nicht gefunden."
             else
-                echo -e "${RED}Fehler:${NC} Config '${config_file}' ohne DOCS-Eintraege."
+                echo -e "${RED}Fehler:${NC} Config '${config_file}' ohne DOCS- und REQUIRED-Eintraege."
             fi
             echo -e "Vorlage anlegen: ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
         } >&2
         exit 1
     fi
-    paths=("${DOCS[@]}")
+    paths=("${DOCS[@]+"${DOCS[@]}"}")
+    with_required="true"
 fi
 
 # Die Kopfzeile nennt die Config nur, wenn sie gelesen wurde.
 loaded_config=""
 [[ ${_RC} -ne 1 ]] && loaded_config="${config_file#./}"
 
-runCheck "${verbose}" "${loaded_config}" "${paths[@]}"
+runCheck "${verbose}" "${loaded_config}" "${with_required}" "${paths[@]+"${paths[@]}"}"
