@@ -173,6 +173,26 @@ testConfigOptionGewinnt() {
     assertEquals "0" "${rc}" "--config: andere Config ohne verbotene Begriffe"
 }
 
+# Regulaerer Ausdruck in der Config: Backslashes und "|" kommen unveraendert
+# bei der Deno-Pruefung an.
+testRunMitRegulaeremAusdruck() {
+    cat > "${fixture}/regex.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("docs/guide.md")
+FORBIDDEN=("/\b99:\d+\b|nobody/|interne IDs")
+EOF
+    runScript --config regex.conf.sh --run
+    assertEquals "1" "${rc}" "Muster: Exit-Code 1"
+    assertOutputContains '(„99:100“)' "Muster: Treffer genannt"
+}
+
+testUngueltigerAusdruckBrichtAb() {
+    printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nFORBIDDEN=("/[/")\n' > "${fixture}/broken.conf.sh"
+    runScript --config broken.conf.sh --run
+    assertEquals "2" "${rc}" "ungueltiges Muster: Exit-Code 2"
+    assertOutputContains "ungültiger regulärer Ausdruck" "ungueltiges Muster: Meldung"
+}
+
 runAll() {
     if ! command -v deno >/dev/null 2>&1; then
         echo -e "${RED}Fehler:${NC} Deno nicht gefunden, Tests uebersprungen." >&2
@@ -190,6 +210,8 @@ runAll() {
     testRunMitConfigFindetVerbotenenBegriff
     testRunMitPfadPrueftNurDiesen
     testConfigOptionGewinnt
+    testRunMitRegulaeremAusdruck
+    testUngueltigerAusdruckBrichtAb
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then

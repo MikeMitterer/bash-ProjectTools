@@ -13,7 +13,10 @@
  *
  * Optionen:
  *   --root DIR             Repository-Wurzel (Standard: aktuelles Verzeichnis)
- *   --forbid BEGRIFF[|GRUND]  Begriff darf in keinem geprüften Dokument stehen
+ *   --forbid EINTRAG       Darf in keinem geprüften Dokument stehen:
+ *                          BEGRIFF[|GRUND] (Text, Groß-/Kleinschreibung zählt)
+ *                          oder /MUSTER/FLAGS[|GRUND] (regulärer Ausdruck, z. B.
+ *                          /\bP[UG]ID\b/ oder /nobody:users/i)
  *   --exclude PFAD         Datei oder Ordner (relativ zur Wurzel) auslassen
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
@@ -169,10 +172,38 @@ interface Facts {
   variables: Map<string, Set<string>>;
 }
 
-/** Ein verbotener Begriff aus der Projekt-Config, mit optionaler Begründung. */
+/**
+ * Ein verbotener Begriff aus der Projekt-Config, mit optionaler Begründung.
+ * `term` ist der Text aus der Config; `pattern` ist gesetzt, wenn er als
+ * regulärer Ausdruck (`/muster/flags`) angegeben war.
+ */
 export interface Forbidden {
   term: string;
   reason: string;
+  pattern?: RegExp;
+}
+
+/**
+ * Liest einen Config-Eintrag: `BEGRIFF[|GRUND]` oder `/MUSTER/FLAGS[|GRUND]`.
+ * Beim Muster endet der Ausdruck am ersten `/`, dem nur Flags und dann `|`
+ * oder das Ende folgen; so darf das Muster selbst `|` enthalten. Ein `/` im
+ * Muster wird als `\/` geschrieben.
+ */
+export function parseForbidden(entry: string): Forbidden | string {
+  const regex = entry.match(/^\/(.+?)\/([dimsuv]*)(?:\|(.*))?$/s);
+  if (regex) {
+    try {
+      return {
+        term: `/${regex[1]}/${regex[2]}`,
+        reason: (regex[3] ?? "").trim(),
+        pattern: new RegExp(regex[1], regex[2]),
+      };
+    } catch (error) {
+      return `ungültiger regulärer Ausdruck ${entry}: ${(error as Error).message}`;
+    }
+  }
+  const [term, ...reason] = entry.split("|");
+  return term ? { term, reason: reason.join("|").trim() } : `leerer Begriff: ${entry}`;
 }
 
 /** Ein Befund: `!` Problem, `?` von Hand prüfen, `~` nicht prüfbar, `i` Information. */
@@ -730,15 +761,18 @@ export function checkDocument(
     }
   }
 
-  for (const { term, reason } of forbidden) {
+  for (const { term, reason, pattern } of forbidden) {
     lines.forEach((content, index) => {
-      if (content.includes(term)) {
-        add({
-          line: index + 1,
-          marker: "!",
-          message: `verbotener Begriff „${term}“${reason ? ` – ${reason}` : ""}`,
-        });
-      }
+      const hit = pattern ? content.match(pattern)?.[0] : content.includes(term) ? term : undefined;
+      if (hit === undefined) return;
+      const shown = pattern
+        ? `verbotenes Muster ${term} („${hit}“)`
+        : `verbotener Begriff „${term}“`;
+      add({
+        line: index + 1,
+        marker: "!",
+        message: `${shown}${reason ? ` – ${reason}` : ""}`,
+      });
     });
   }
 
@@ -827,8 +861,9 @@ function parseArgs(args: string[]): Options | string {
     try {
       if (arg === "--root") options.root = value();
       else if (arg === "--forbid") {
-        const [term, ...reason] = value().split("|");
-        if (term) options.forbidden.push({ term, reason: reason.join("|").trim() });
+        const forbidden = parseForbidden(value());
+        if (typeof forbidden === "string") return forbidden;
+        options.forbidden.push(forbidden);
       } else if (arg === "--exclude") options.excludes.push(value());
       else if (arg === "--as") options.placement = value();
       else if (arg === "--verbose") options.verbose = true;
@@ -848,7 +883,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF[|GRUND]] [--exclude PFAD] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }

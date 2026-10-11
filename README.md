@@ -494,11 +494,19 @@ EXCLUDE=(
     "docs/superpowers"
 )
 
-# "<begriff>" oder "<begriff>|<grund>"; Groß-/Kleinschreibung zählt.
+# Text oder regulärer Ausdruck, je optional mit "|<grund>".
 FORBIDDEN=(
     "PUID|interne Kennung, nicht in Nutzerdoku"
+    "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
 )
 ```
+
+Ein `FORBIDDEN`-Eintrag ist entweder **Text** (Groß-/Kleinschreibung zählt)
+oder ein **regulärer Ausdruck** in JavaScript-Syntax als `/muster/flags`,
+etwa mit `i` für beliebige Schreibweise. Das Muster darf `|` enthalten; es
+endet am ersten `/`, dem nur Flags und dann `|grund` oder das Zeilenende
+folgen. Ein `/` im Muster wird als `\/` geschrieben. Die Meldung nennt den
+gefundenen Text. Ein ungültiger Ausdruck bricht mit Exit-Code 2 ab.
 
 Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
 sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,

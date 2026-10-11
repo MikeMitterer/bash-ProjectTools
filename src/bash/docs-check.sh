@@ -29,7 +29,11 @@
 #   -e | --example   Gueltige Beispiel-Config auf stdout ausgeben (umleitbar)
 #   -h | --help      Diese Hilfe anzeigen
 #
-# Exit-Code: 0 ohne Probleme, 1 bei Problemen oder Fehlern.
+# FORBIDDEN-Eintraege sind Text ("PUID") oder regulaere Ausdruecke
+# ("/\bP(U|G)ID\b/i"), jeweils optional mit "|<grund>".
+#
+# Exit-Code: 0 ohne Probleme, 1 bei Problemen oder Fehlern, 2 bei einem
+# ungueltigen Eintrag (z. B. kaputter regulaerer Ausdruck).
 #------------------------------------------------------------------------------
 
 set -euo pipefail
@@ -152,10 +156,14 @@ EOF
     cat <<EOF
 )
 
-# Begriffe, die in keinem geprueften Dokument stehen duerfen:
-# "<begriff>" oder "<begriff>|<grund>". Gross-/Kleinschreibung zaehlt.
+# Was in keinem geprueften Dokument stehen darf, je Eintrag optional mit
+# "|<grund>":
+#   "<begriff>"         Text, Gross-/Kleinschreibung zaehlt
+#   "/<muster>/<flags>" regulaerer Ausdruck (JavaScript), z. B. Flag i;
+#                       "|" im Muster ist erlaubt, "/" als "\/" schreiben
 FORBIDDEN=(
     # "PUID|interne Kennung, nicht in Nutzerdoku"
+    # "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
 )
 EOF
 }

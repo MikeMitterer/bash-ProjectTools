@@ -157,6 +157,17 @@ const forbidden = run(
   `${root}/docs`,
 );
 const draft = run("--root", root, "--as", "docs/new.md", `${root}/notes.txt`);
+// Muster mit Alternative und Flag; \bUID\b darf in „PUID“ nicht treffen.
+const pattern = run(
+  "--root",
+  root,
+  "--forbid",
+  "/\\bp(u|g)id\\b/i|interne IDs",
+  "--forbid",
+  "/\\bUID\\b/|nur als ganzes Wort",
+  `${root}/docs/user.md`,
+);
+const invalid = run("--root", root, "--forbid", "/[/", `${root}/README.md`);
 
 Deno.test("keine Kanarienwerte aus sensiblen oder unversionierten Dateien", () => {
   for (const { output } of [readme, sub, developer, forbidden]) {
@@ -256,6 +267,21 @@ Deno.test("Entwurf mit --as wird am späteren Ort geprüft", () => {
     draft.output.includes("1 Dokument geprüft"),
     `--as prüft genau eine Datei:\n${draft.output}`,
   );
+});
+
+Deno.test("Verbotene Muster als regulärer Ausdruck, mit Treffer und Grund", () => {
+  const hit = lineFor(pattern.output, "verbotenes Muster");
+  assert(
+    hit.includes("„PUID“") && hit.includes("interne IDs"),
+    `Treffer oder Grund fehlt:\n${pattern.output}`,
+  );
+  assert(!pattern.output.includes("nur als ganzes Wort"), "\\bUID\\b darf in PUID nicht treffen");
+  assert(pattern.code === 1, "Treffer ergibt Exit-Code 1");
+});
+
+Deno.test("Ungültiger regulärer Ausdruck bricht mit Exit-Code 2 ab", () => {
+  assert(invalid.code === 2, `Exit-Code 2 erwartet, war ${invalid.code}`);
+  assert(invalid.output.includes("ungültiger regulärer Ausdruck"), invalid.output);
 });
 
 Deno.test("Aufräumen", () => {
