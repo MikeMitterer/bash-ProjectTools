@@ -91,6 +91,12 @@ function fixture(): string {
   // Datierte Entwürfe dürfen interne Angaben enthalten und werden ausgeschlossen.
   write(root, "docs/drafts/plan.md", "# Plan\n\nRuns as PUID 99.\n");
   write(root, "docs/user.md", "# User\n\nSet PUID to change the owner.\n");
+  // Drei Hinweisboxen in einem README: Hinweis mit Zeilen und Box-Art.
+  write(
+    root,
+    "ui/README.md",
+    "# UI\n\n> [!NOTE]\n> a\n\n> [!WARNING]\n> b\n\n> [!TIP]\n> c\n",
+  );
   write(
     root,
     "README.md",
@@ -168,6 +174,7 @@ const pattern = run(
   `${root}/docs/user.md`,
 );
 const invalid = run("--root", root, "--forbid", "/[/", `${root}/README.md`);
+const alerts = run("--root", root, `${root}/ui/README.md`);
 
 Deno.test("keine Kanarienwerte aus sensiblen oder unversionierten Dateien", () => {
   for (const { output } of [readme, sub, developer, forbidden]) {
@@ -282,6 +289,15 @@ Deno.test("Verbotene Muster als regulärer Ausdruck, mit Treffer und Grund", () 
 Deno.test("Ungültiger regulärer Ausdruck bricht mit Exit-Code 2 ab", () => {
   assert(invalid.code === 2, `Exit-Code 2 erwartet, war ${invalid.code}`);
   assert(invalid.output.includes("ungültiger regulärer Ausdruck"), invalid.output);
+});
+
+Deno.test("Mehr als zwei Hinweisboxen: Hinweis nennt Zeilen und Box-Art", () => {
+  const hint = lineFor(alerts.output, "Hinweisboxen");
+  assert(
+    hint.includes("? 3, 6, 9: 3 Hinweisboxen ([!NOTE], [!WARNING], [!TIP])"),
+    `Zeilen oder Box-Art fehlen:\n${alerts.output}`,
+  );
+  assert(alerts.code === 0, "ein Hinweis ist kein Problem");
 });
 
 Deno.test("Aufräumen", () => {
