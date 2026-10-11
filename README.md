@@ -520,9 +520,12 @@ EXCLUDE=(
 )
 
 # Text oder regulärer Ausdruck, je optional mit "|<grund>".
+# Ein Eintrag je Zusammenhang, damit jeder seinen eigenen Grund hat.
 FORBIDDEN=(
-    "PUID|interne Kennung, nicht in Nutzerdoku"
-    "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
+    # Interne Umgebungsvariablen, in jeder Schreibweise
+    "/\bP(U|G)ID\b/i|interne Variablen, nicht in Nutzerdoku"
+    # Standardnutzer als Zahl und als Name
+    "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
 )
 
 # Optional: höchstens so viele farbige Hinweisboxen je Dokument.
