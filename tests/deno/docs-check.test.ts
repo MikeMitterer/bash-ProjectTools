@@ -70,6 +70,12 @@ function fixture(): string {
     "docs/guide.md",
     "See [serving](../api/README.md#serving) and [install](../README.md#install).\n",
   );
+  // Pflichtdateien: gültig, leer, Markdown ohne oder nur mit Überschrift im Codeblock.
+  write(root, "LICENSE", "EUPL 1.2\n");
+  write(root, "req/a/b/deep.md", "# Deep\n");
+  write(root, "req/empty.md", "  \n");
+  write(root, "req/plain.md", "Nur Text, kein Titel.\n");
+  write(root, "req/fenced.md", "```\n# kein Titel\n```\n");
   // Sensible Dateien, absichtlich versioniert: Auch dann nie lesen.
   write(root, ".env", "ENV_ONLY_VAR=CANARY_ENV\nleak:\n");
   write(root, "config/secrets.yaml", "SECRETS_ONLY_VAR: CANARY_SECRETS\n");
@@ -178,6 +184,22 @@ const pattern = run(
 const invalid = run("--root", root, "--forbid", "/[/", `${root}/README.md`);
 const alerts = run("--root", root, "--max-alerts", "2", `${root}/ui/README.md`);
 const alertsUnlimited = run("--root", root, `${root}/ui/README.md`);
+// Nur Pflichtdateien, ohne Dokumente. README.md liegt nur auf der Platte.
+const required = run(
+  "--root",
+  root,
+  ...[
+    "LICENSE",
+    "deep.md",
+    "./req/**/deep.md",
+    "req/*/deep.md",
+    "req/empty.md",
+    "req/plain.md|braucht einen Titel",
+    "req/fenced.md",
+    "README.md",
+    "./README.md",
+  ].flatMap((entry) => ["--require", entry]),
+);
 
 Deno.test("keine Kanarienwerte aus sensiblen oder unversionierten Dateien", () => {
   for (const { output } of [readme, sub, developer, forbidden]) {
@@ -330,6 +352,37 @@ Deno.test("Hinweisboxen: Grenze nur aus der Config, Meldung mit Zeilen und Box-A
     `Zeilen, Box-Art oder Grenze fehlen:\n${alerts.output}`,
   );
   assert(alerts.code === 0, "zu prüfende Stellen lassen die Prüfung nicht scheitern");
+});
+
+Deno.test("Pflichtdateien: Name irgendwo, Pfad, Muster mit * und **", () => {
+  assert(/✓ LICENSE\s+LICENSE/.test(required.output), `LICENSE fehlt:\n${required.output}`);
+  assert(/✓ deep\.md\s+req\/a\/b\/deep\.md/.test(required.output), "Name ohne Pfad: irgendwo");
+  assert(
+    /✓ \.\/req\/\*\*\/deep\.md\s+req\/a\/b\/deep\.md/.test(required.output),
+    "** beliebig tief",
+  );
+  assert(lineFor(required.output, "req/*/deep.md").includes("fehlt"), "* ist genau ein Ordner");
+  assert(/✓ README\.md\s+api\/README\.md/.test(required.output), "README.md ohne Pfad: irgendwo");
+  assert(!required.output.includes("Dokumentprüfung"), "ohne Dokumente kein Dokumentblock");
+});
+
+Deno.test("Pflichtdateien: unversioniert, leer oder Markdown ohne Überschrift zählt nicht", () => {
+  assert(
+    lineFor(required.output, "✗ ./README.md").includes("fehlt im Repository"),
+    "unversioniert",
+  );
+  assert(lineFor(required.output, "req/empty.md").includes("ist leer"), "leere Datei");
+  const plain = lineFor(required.output, "req/plain.md");
+  assert(
+    plain.includes("keine Überschrift") && plain.includes("Grund: braucht einen Titel"),
+    plain,
+  );
+  assert(
+    lineFor(required.output, "req/fenced.md").includes("keine Überschrift"),
+    "Codeblock zählt nicht",
+  );
+  assert(required.output.includes("9 Pflichtdateien geprüft · 5 Probleme"), required.output);
+  assert(required.code === 1, "fehlende Pflichtdateien ergeben Exit-Code 1");
 });
 
 Deno.test("Aufräumen", () => {

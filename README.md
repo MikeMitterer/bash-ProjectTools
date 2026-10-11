@@ -525,10 +525,29 @@ FORBIDDEN=(
 
 # Optional: höchstens so viele farbige Hinweisboxen je Dokument.
 MAX_ALERTS=2
+
+# Dateien, die es geben muss, je optional mit "|<grund>".
+REQUIRED=(
+    "LICENSE"                                # ohne Pfad: irgendwo im Projekt
+    "./README.md"                            # mit Pfad: genau dort
+    "docs/user-guide.md|im README verlinkt"
+    "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
+)
 ```
 
 Grenzwerte setzt nur das Projekt: Ohne `MAX_ALERTS` prüft das Skript die Zahl
 der Hinweisboxen nicht.
+
+**Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
+an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`). Mit
+`/` gilt er ab dem Projekt-Root; `./README.md` meint nur das README im Root.
+Muster: `*` beliebige Zeichen in einem Ordner, `**` beliebig viele Ordner, `?`
+ein Zeichen. Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei
+nur auf der Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei
+braucht zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von
+Codeblöcken. Fehlt eine Pflichtdatei, ist das ein Problem (Exit-Code 1).
+Pflichtdateien prüft `--run` nur ohne Pfadangabe, also beim Lauf über die
+ganze Config.
 
 Ein `FORBIDDEN`-Eintrag ist entweder **Text** (Groß-/Kleinschreibung zählt)
 oder ein **regulärer Ausdruck** in JavaScript-Syntax als `/muster/flags`,
