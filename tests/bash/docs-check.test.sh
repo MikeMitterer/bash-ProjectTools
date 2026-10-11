@@ -198,6 +198,15 @@ testRequiredAusConfig() {
     assertOutputLacks "Pflichtdateien" "--run mit Pfad: keine Pflichtdateien"
 }
 
+# Muster in DOCS und EXCLUDE kommen unveraendert an (keine Shell-Expansion).
+testMusterInDocsUndExclude() {
+    printf '# shellcheck disable=SC2034\nDOCS=("**/*.md")\nEXCLUDE=("docs/dr*")\n' > "${fixture}/glob.conf.sh"
+    runScript --config glob.conf.sh --run
+    assertEquals "0" "${rc}" "Muster: ohne Probleme"
+    assertOutputContains "docs/guide.md" "Muster: docs/guide.md geprueft"
+    assertOutputLacks "docs/drafts/plan.md" "Muster-Ausschluss: Entwurf nicht geprueft"
+}
+
 # Die Grenze fuer Hinweisboxen kommt nur aus der Config.
 testMaxAlertsAusConfig() {
     printf '# Demo\n\n> [!NOTE]\n> a\n\n> [!TIP]\n> b\n' > "${fixture}/boxes.md"
@@ -238,6 +247,7 @@ runAll() {
     testUngueltigerAusdruckBrichtAb
     testMaxAlertsAusConfig
     testRequiredAusConfig
+    testMusterInDocsUndExclude
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then
