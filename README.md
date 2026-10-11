@@ -109,6 +109,7 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
 | `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
 | `src/bash/dev-ports.sh` | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
+| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe | `.docs-check.conf.sh` |
 
 Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
 `npm publish` überall dort, wo veröffentlicht wird:
@@ -431,6 +432,77 @@ Tests: `tests/bash/dev-ports.test.sh --run` startet echte Server auf freien
 Ports und prüft unter anderem, dass Prozesse und overmind-Reste außerhalb des
 Projekts nicht beendet werden und dass mehrfache, auch gleichzeitige Aufrufe
 gelingen.
+
+### `docs-check.sh` — Dokumentation gegen das Projekt prüfen
+
+Dokumentation veraltet still: Ein Target wird umbenannt, ein Ordner zieht um,
+eine interne Kennung soll nicht mehr in der Nutzerdoku stehen. Eine Regel in
+`AGENTS.md` hilft nur, wenn gerade jemand die betroffene Datei liest.
+`docs-check.sh` prüft alle Nutzerdokumente bei jedem Lauf, etwa als Teil von
+`make test`.
+
+Je Markdown-Datei:
+
+- **Links und Bilder** auf Dateien im Repo, Anker im Dokument und Anker, auf
+  die andere Dateien verlinken.
+- **Befehle in Code-Formatierung** gegen das Projekt: `make` (je Verzeichnis,
+  mit Einbindungen), `npm run`, `deno task`, `uv`/`poetry run`, `cargo run`,
+  jeweils in dem Verzeichnis, in dem der Befehl läuft (`cd` im Codeblock,
+  `make -C`, `npm --prefix`).
+- **Variablen und Repo-Pfade** in Code-Formatierung.
+- **Verbotene Begriffe** aus der Config und vergessene Platzhalter.
+
+Aufruf im Projekt-Root:
+
+```bash
+docs-check.sh --example > .docs-check.conf.sh   # README-Dateien und docs/ vorschlagen
+docs-check.sh --run                              # alle Dokumente aus der Config
+docs-check.sh --run README.md                    # nur diese Datei
+```
+
+Ausgabe: `!` ist ein Problem (Exit-Code 1), `?` von Hand prüfen, `~` ein
+Ökosystem, das das Skript nicht prüft (Go, Maven, Gradle u. a.). Ohne Befund
+erscheint nur die Zusammenfassung; `--verbose` zeigt zusätzlich Zahlenangaben
+und externe URLs zum Gegenprüfen.
+
+Die Prüfung macht `src/deno/docs-check.ts` (Deno 2), nur lesend, nur `git`,
+ohne Netz. Projektfakten liest sie nur aus versionierten Dateien und nie aus
+Dateien mit Zugangsdaten (`.env` außer Beispieldateien, Schlüssel, Secrets,
+Token u. a.), auch nicht über Makefile-Einbindungen. Agenten rufen sie auch
+direkt auf, etwa der Skill `readme-conventions` für einen Entwurf an anderer
+Stelle:
+
+```bash
+deno run --allow-read --allow-run=git src/deno/docs-check.ts --as README.md /pfad/zum/entwurf.md
+```
+
+#### Format `.docs-check.conf.sh`
+
+```bash
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # von docs-check.sh gesourct
+
+# Dateien oder Ordner (Ordner: alle *.md darin), relativ zum Projekt-Root.
+DOCS=(
+    "README.md"
+    "docker/README.md"
+    "docs"
+)
+
+# Ausgenommen, z. B. datierte Entwürfe oder Vorlagen mit verbotenen Begriffen.
+EXCLUDE=(
+    "docs/superpowers"
+)
+
+# "<begriff>" oder "<begriff>|<grund>"; Groß-/Kleinschreibung zählt.
+FORBIDDEN=(
+    "PUID|interne Kennung, nicht in Nutzerdoku"
+)
+```
+
+Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
+sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,
+Optionen, Exit-Codes).
 
 ## Python-Paket für Projektumgebungen
 
