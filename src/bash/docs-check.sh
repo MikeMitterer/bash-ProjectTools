@@ -132,19 +132,19 @@ printConfigExample() {
 
     cat <<EOF
 #!/usr/bin/env bash
-# Config fuer docs-check.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
-# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# Config für docs-check.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
+# .sh-Endung fürs IDE-Highlighting. Format-Doku: ProjectTools/README.md
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
 # Pfadangaben in DOCS, EXCLUDE und REQUIRED: relativ zum Projekt-Root,
-# fuehrendes "./" erlaubt. Muster wie in .gitignore:
+# führendes "./" erlaubt. Muster wie in .gitignore:
 #   *    beliebige Zeichen innerhalb eines Ordners   docs/*.md
 #   **   beliebig viele Ordner                       docs/**/*.md, **/README.md
 #   ?    genau ein Zeichen                           docs/v?.md
 # Ordner und Muster treffen nur Dateien, die git nicht ignoriert.
 
-# Inhaltlich zu pruefende Dokumente: Datei, Ordner (alle *.md darin) oder
+# Inhaltlich zu prüfende Dokumente: Datei, Ordner (alle *.md darin) oder
 # Muster. Ein Muster ohne Treffer ist ein Problem.
 DOCS=(
 EOF
@@ -157,8 +157,8 @@ EOF
 )
 
 # Aus DOCS ausgenommen: Datei, Ordner samt Inhalt oder Muster (ein Muster
-# darf auch einen Ordner treffen, z. B. "docs/drafts-*"). Gedacht fuer
-# datierte Entwuerfe oder Vorlagen, die verbotene Begriffe bewusst nennen.
+# darf auch einen Ordner treffen, z. B. "docs/drafts-*"). Gedacht für
+# datierte Entwürfe oder Vorlagen, die verbotene Begriffe bewusst nennen.
 EXCLUDE=(
 EOF
     if [[ ${#excludes[@]} -gt 0 ]]; then
@@ -167,43 +167,43 @@ EOF
     cat <<EOF
 )
 
-# Text, der in keinem Dokument aus DOCS stehen darf. Geprueft wird jede
-# Zeile, auch in Codebloecken; jeder Treffer ist ein Problem (Exit-Code 1).
+# Text, der in keinem Dokument aus DOCS stehen darf. Geprüft wird jede
+# Zeile, auch in Codeblöcken; jeder Treffer ist ein Problem (Exit-Code 1).
 # Die Meldung nennt Zeilen, gefundenen Text und den Grund.
 #
 # Ein Eintrag ist eine von zwei Formen, jeweils optional mit "|<grund>":
 #
-#   "<text>"             Genau dieser Text, Gross-/Kleinschreibung zaehlt.
-#                        Trifft auch innerhalb von Woertern: "UID" trifft
+#   "<text>"             Genau dieser Text, Groß-/Kleinschreibung zählt.
+#                        Trifft auch innerhalb von Wörtern: "UID" trifft
 #                        "PUID".
 #
-#   "/<muster>/<flags>"  Regulaerer Ausdruck in JavaScript-Syntax:
+#   "/<muster>/<flags>"  Regulärer Ausdruck in JavaScript-Syntax:
 #                          \b        Wortgrenze: "/\bUID\b/" trifft nicht "PUID"
 #                          (a|b)     Alternative: "/\bP(U|G)ID\b/"
 #                          a|b       ganze Alternativen: "/PUID|nobody:users/"
 #                          \d+       Ziffern: "/\b99:\d+\b/"
-#                        Flags: i = Gross-/Kleinschreibung egal, u = Unicode.
+#                        Flags: i = Groß-/Kleinschreibung egal, u = Unicode.
 #                        "|" im Muster ist erlaubt: Das Muster endet am
 #                        ersten "/", dem nur Flags und dann "|" oder das
 #                        Zeilenende folgen. Ein "/" im Muster wird "\/".
-#                        Ein ungueltiger Ausdruck bricht mit Exit-Code 2 ab.
+#                        Ein ungültiger Ausdruck bricht mit Exit-Code 2 ab.
 #
-# In Bash-Strings mit doppelten Anfuehrungszeichen bleiben "\b" und "\d"
+# In Bash-Strings mit doppelten Anführungszeichen bleiben "\b" und "\d"
 # erhalten; Dollarzeichen und Backticks brauchen einen Backslash davor.
 FORBIDDEN=(
     # "PUID|interne Kennung, nicht in Nutzerdoku"
     # "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
 )
 
-# Optional: hoechstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
+# Optional: höchstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
 # Dokument. Leer oder nicht gesetzt: keine Grenze.
 MAX_ALERTS=""
 
-# Dateien, die es geben muss, je optional mit "|<grund>". Sie zaehlen nur,
+# Dateien, die es geben muss, je optional mit "|<grund>". Sie zählen nur,
 # wenn sie versioniert und nicht leer sind; .md-Dateien brauchen mindestens
-# eine Ueberschrift ("# Titel").
+# eine Überschrift ("# Titel").
 #   "LICENSE"             ohne "/": irgendwo im Projekt
-#   "./README.md"         mit "/": genau dort, "./" heisst Projekt-Root
+#   "./README.md"         mit "/": genau dort, "./" heißt Projekt-Root
 #   "./docs/**/*.md"      Muster: mindestens ein Treffer
 REQUIRED=(
 EOF

@@ -865,10 +865,21 @@ export function checkDocument(
   }
 
   for (const { term, reason, pattern } of forbidden) {
+    // Jeder verschiedene Treffer einzeln, auch mehrere in derselben Zeile.
+    const global = pattern
+      ? new RegExp(pattern.source, `${pattern.flags.replace("g", "")}g`)
+      : undefined;
     const hits = new Map<string, number[]>();
     lines.forEach((content, index) => {
-      const hit = pattern ? content.match(pattern)?.[0] : content.includes(term) ? term : undefined;
-      if (hit !== undefined) hits.set(hit, [...(hits.get(hit) ?? []), index + 1]);
+      const found = global
+        ? [...content.matchAll(global)].map((match) => match[0]).filter(Boolean)
+        : content.includes(term)
+        ? [term]
+        : [];
+      for (const hit of new Set(found)) {
+        const hitLines = hits.get(hit) ?? [];
+        if (!hitLines.includes(index + 1)) hits.set(hit, [...hitLines, index + 1]);
+      }
     });
     for (const [hit, hitLines] of hits) {
       add({

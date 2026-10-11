@@ -99,7 +99,7 @@ function fixture(): string {
   );
   // Datierte Entwürfe dürfen interne Angaben enthalten und werden ausgeschlossen.
   write(root, "docs/drafts/plan.md", "# Plan\n\nRuns as PUID 99.\n");
-  write(root, "docs/user.md", "# User\n\nSet PUID to change the owner.\n");
+  write(root, "docs/user.md", "# User\n\nSet PUID and PGID to change the owner.\n");
   // Drei Hinweisboxen in einem README: Hinweis mit Zeilen und Box-Art.
   write(
     root,
@@ -345,6 +345,10 @@ Deno.test("Verbotene Muster als regulärer Ausdruck, mit Treffer und Grund", () 
   assert(
     hit.includes("„PUID“") && hit.includes("interne IDs") && hit.includes("Muster /"),
     `Treffer, Muster oder Grund fehlt:\n${pattern.output}`,
+  );
+  assert(
+    lineFor(pattern.output, "„PGID“").includes("Verbotener Text"),
+    "zweiter Treffer in derselben Zeile wird auch gemeldet",
   );
   assert(!pattern.output.includes("nur als ganzes Wort"), "\\bUID\\b darf in PUID nicht treffen");
   assert(pattern.code === 1, "Treffer ergibt Exit-Code 1");
