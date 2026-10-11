@@ -1224,7 +1224,9 @@ function main(args: string[]): number {
     for (const { required, found, failure } of requiredResults) {
       const name = required.entry.padEnd(entryWidth);
       if (!failure) {
-        const shown = found.slice(0, 3).join(", ") +
+        // Bei einem genauen Pfad nur „vorhanden“, sonst die gefundenen Dateien.
+        const exact = found.length === 1 && found[0] === required.entry.replace(/^\.\//, "");
+        const shown = exact ? "vorhanden" : found.slice(0, 3).join(", ") +
           (found.length > 3 ? ` (+${found.length - 3} weitere)` : "");
         console.log(`  ${paint("32", "✓")} ${name}   ${shown}`);
         continue;

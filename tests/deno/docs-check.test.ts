@@ -355,7 +355,7 @@ Deno.test("Hinweisboxen: Grenze nur aus der Config, Meldung mit Zeilen und Box-A
 });
 
 Deno.test("Pflichtdateien: Name irgendwo, Pfad, Muster mit * und **", () => {
-  assert(/✓ LICENSE\s+LICENSE/.test(required.output), `LICENSE fehlt:\n${required.output}`);
+  assert(/✓ LICENSE\s+vorhanden/.test(required.output), `LICENSE fehlt:\n${required.output}`);
   assert(/✓ deep\.md\s+req\/a\/b\/deep\.md/.test(required.output), "Name ohne Pfad: irgendwo");
   assert(
     /✓ \.\/req\/\*\*\/deep\.md\s+req\/a\/b\/deep\.md/.test(required.output),
