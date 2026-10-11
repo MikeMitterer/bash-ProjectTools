@@ -751,12 +751,18 @@ export function checkDocument(
   checkClaims(text, project, collectFacts(project), isReadme ? home : ".", add);
 
   if (isReadme) {
-    const alerts = [...text.matchAll(ALERT)].length;
-    if (alerts > 2) {
+    // Zeile und Art je Box, damit die Meldung ohne Nachsehen verständlich ist.
+    const alerts = [...text.matchAll(ALERT)].map((match) => ({
+      line: text.slice(0, match.index).split("\n").length,
+      kind: `[!${match[1]}]`,
+    }));
+    if (alerts.length > 2) {
       add({
         line: 0,
         marker: "?",
-        message: `${alerts} Hinweisboxen; mehr als 2 entwerten jede einzelne`,
+        message: `${alerts.map((alert) => alert.line).join(", ")}: ${alerts.length} Hinweisboxen (${
+          alerts.map((alert) => alert.kind).join(", ")
+        }); mehr als 2 entwerten jede einzelne`,
       });
     }
   }
