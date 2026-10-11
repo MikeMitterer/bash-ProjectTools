@@ -468,23 +468,23 @@ was zu tun ist:
 Dokumentprüfung: 4 Dokumente laut .docs-check.conf.sh
 Ausgenommen: docs/superpowers, docs/README.template.md
 
-  ? README.md                                1 Stelle prüfen
+  ? README.md                                1 Hinweis
   ✓ docker/README.md                         in Ordnung
   ✓ unraid/README.md                         in Ordnung
   ✓ docs/stockinfo-integration-proposal.md   in Ordnung
 
 README.md
-  Prüfen     Zeilen 27, 66, 115, 136 · 4 farbige Hinweisboxen ([!IMPORTANT], [!NOTE], [!WARNING], [!TIP]); die Config erlaubt höchstens 2 (MAX_ALERTS).
+  Hinweis    Zeilen 27, 66, 115, 136 · 4 farbige Hinweisboxen ([!IMPORTANT], [!NOTE], [!WARNING], [!TIP]); die Config erlaubt höchstens 2 (MAX_ALERTS).
              → Nur die wirklich wichtigen behalten oder MAX_ALERTS in der Config anpassen.
 
-Ergebnis: 4 Dokumente geprüft · keine Probleme · 1 Stelle von Hand prüfen
-Stellen zum Prüfen lassen die Prüfung nicht scheitern.
+Ergebnis: 4 Dokumente geprüft · keine Probleme · 1 Hinweis zum Ansehen
+Hinweise sind keine Fehler, die Prüfung ist bestanden. Ob du etwas änderst, entscheidest du.
 ```
 
 | Kategorie | Bedeutung |
 |---|---|
 | **Problem** | Stimmt nicht mit dem Projekt überein; Exit-Code 1 |
-| **Prüfen** | Kann stimmen, ein Mensch entscheidet; Exit-Code bleibt 0 |
+| **Hinweis** | Kann stimmen, ein Mensch entscheidet; kein Fehler, Exit-Code bleibt 0 |
 | **Ungeprüft** | Befehle eines Ökosystems, das das Skript nicht prüft (Go, Maven, Gradle u. a.) |
 | **Info** | Nur mit `--verbose`: Zahlenangaben und externe URLs zum Gegenprüfen |
 

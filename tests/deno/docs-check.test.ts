@@ -222,7 +222,7 @@ Deno.test("keine Kanarienwerte aus sensiblen oder unversionierten Dateien", () =
 
 Deno.test("Variablen nur aus sensiblen oder unversionierten Dateien gelten als unbekannt", () => {
   for (const name of ["ENV_ONLY_VAR", "SECRETS_ONLY_VAR", "KEY_ONLY_VAR", "UNTRACKED_ONLY_VAR"]) {
-    assert(lineFor(readme.output, name).includes("Prüfen"), `${name} sollte unbekannt sein`);
+    assert(lineFor(readme.output, name).includes("Hinweis"), `${name} sollte unbekannt sein`);
   }
 });
 
@@ -235,11 +235,11 @@ Deno.test("Make je Verzeichnis, mit Einbindungen", () => {
   assert(!lineFor(readme.output, "make test"), "make test ist belegt");
   assert(!lineFor(readme.output, "make lint"), "make lint kommt aus build.mk");
   assert(
-    lineFor(readme.output, "make deploy").includes("Prüfen"),
+    lineFor(readme.output, "make deploy").includes("Hinweis"),
     "make deploy: wegen Einbindung über Variable nur zu prüfen",
   );
   assert(
-    lineFor(readme.output, "make leak").includes("Prüfen"),
+    lineFor(readme.output, "make leak").includes("Hinweis"),
     "make leak: .env darf nicht als Quelle von Targets gelesen werden",
   );
   assert(!lineFor(readme.output, "make serve"), "make serve in api/ ist belegt (-C und cd)");
@@ -262,7 +262,7 @@ Deno.test("npm, deno task, uv run und cargo im richtigen Verzeichnis", () => {
   );
   const uv = readme.output.split("\n").filter((line) => line.includes("uv run mycli"));
   assert(
-    uv.length === 1 && uv[0].includes("Prüfen"),
+    uv.length === 1 && uv[0].includes("Hinweis"),
     "uv run mycli: zu prüfen in der Wurzel, belegt nach cd py",
   );
   assert(!lineFor(readme.output, "uv run pytest"), "pytest ist ein Werkzeug, keine Meldung");
@@ -276,7 +276,7 @@ Deno.test("npm, deno task, uv run und cargo im richtigen Verzeichnis", () => {
 
 Deno.test("Jeder Befund sagt, was zu tun ist", () => {
   const lines = readme.output.split("\n");
-  const findings = lines.filter((line) => /^\s{2}(Problem|Prüfen|Ungeprüft)\s/.test(line));
+  const findings = lines.filter((line) => /^\s{2}(Problem|Hinweis|Ungeprüft)\s/.test(line));
   assert(findings.length > 0, "keine Befunde gefunden");
   for (const finding of findings) {
     const next = lines[lines.indexOf(finding) + 1] ?? "";
@@ -363,12 +363,12 @@ Deno.test("Hinweisboxen: Grenze nur aus der Config, Meldung mit Zeilen und Box-A
   assert(!alertsUnlimited.output.includes("Hinweisboxen"), "ohne --max-alerts keine Grenze");
   const hint = lineFor(alerts.output, "Hinweisboxen");
   assert(
-    hint.includes("Prüfen") && hint.includes("Zeilen 3, 6, 9") &&
+    hint.includes("Hinweis") && hint.includes("Zeilen 3, 6, 9") &&
       hint.includes("3 farbige Hinweisboxen ([!NOTE], [!WARNING], [!TIP])") &&
       hint.includes("höchstens 2"),
     `Zeilen, Box-Art oder Grenze fehlen:\n${alerts.output}`,
   );
-  assert(alerts.code === 0, "zu prüfende Stellen lassen die Prüfung nicht scheitern");
+  assert(alerts.code === 0, "Hinweise lassen die Prüfung nicht scheitern");
 });
 
 Deno.test("Pflichtdateien: Name irgendwo, Pfad, Muster mit * und **", () => {

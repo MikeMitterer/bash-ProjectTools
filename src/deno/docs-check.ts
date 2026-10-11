@@ -41,7 +41,7 @@
  *
  * Ausgabe: zuerst jedes geprüfte Dokument mit Ergebnis, dann je Befund
  * Kategorie, Zeilen, was nicht stimmt und was zu tun ist. Kategorien:
- * „Problem“ (Exit-Code 1), „Prüfen“ (ein Mensch entscheidet), „Ungeprüft“
+ * „Problem“ (Exit-Code 1), „Hinweis“ (ein Mensch entscheidet, kein Fehler), „Ungeprüft“
  * (Befehle eines Ökosystems, das das Skript nicht kennt), „Info“ (nur mit
  * --verbose). --config-name nennt die Config in der Kopfzeile.
  *
@@ -1185,7 +1185,7 @@ function parseArgs(args: string[]): Options | string {
 
 const LABELS: Record<Finding["level"], string> = {
   problem: "Problem",
-  check: "Prüfen",
+  check: "Hinweis",
   unchecked: "Ungeprüft",
   info: "Info",
 };
@@ -1201,13 +1201,13 @@ function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
 }
 
-/** Kurzfassung der Befunde eines Dokuments, z. B. „1 Problem, 2 Stellen prüfen“. */
+/** Kurzfassung der Befunde eines Dokuments, z. B. „1 Problem, 2 Hinweise“. */
 function tally(findings: Finding[]): string {
   const parts: string[] = [];
   const of = (level: Finding["level"]) =>
     findings.filter((finding) => finding.level === level).length;
   if (of("problem")) parts.push(count(of("problem"), "Problem", "Probleme"));
-  if (of("check")) parts.push(`${count(of("check"), "Stelle", "Stellen")} prüfen`);
+  if (of("check")) parts.push(count(of("check"), "Hinweis", "Hinweise"));
   if (of("unchecked")) parts.push(`${count(of("unchecked"), "Befehl", "Befehle")} ungeprüft`);
   if (of("info")) parts.push(count(of("info"), "Info", "Infos"));
   return parts.join(", ") || "in Ordnung";
@@ -1345,9 +1345,13 @@ function main(args: string[]): number {
     : paint("32", "keine Probleme");
   console.log(
     `\nErgebnis: ${checked.join(" und ")} geprüft · ${verdict}` +
-      (open ? ` · ${count(open, "Stelle", "Stellen")} von Hand prüfen` : ""),
+      (open ? ` · ${count(open, "Hinweis", "Hinweise")} zum Ansehen` : ""),
   );
-  if (open && !problems) console.log("Stellen zum Prüfen lassen die Prüfung nicht scheitern.");
+  if (open && !problems) {
+    console.log(
+      "Hinweise sind keine Fehler, die Prüfung ist bestanden. Ob du etwas änderst, entscheidest du.",
+    );
+  }
   return problems ? 1 : 0;
 }
 
