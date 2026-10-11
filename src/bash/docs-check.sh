@@ -137,8 +137,15 @@ printConfigExample() {
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
-# Zu pruefende Dokumente: Dateien oder Ordner (Ordner: alle *.md darin),
-# relativ zum Projekt-Root.
+# Pfadangaben in DOCS, EXCLUDE und REQUIRED: relativ zum Projekt-Root,
+# fuehrendes "./" erlaubt. Muster wie in .gitignore:
+#   *    beliebige Zeichen innerhalb eines Ordners   docs/*.md
+#   **   beliebig viele Ordner                       docs/**/*.md, **/README.md
+#   ?    genau ein Zeichen                           docs/v?.md
+# Ordner und Muster treffen nur Dateien, die git nicht ignoriert.
+
+# Inhaltlich zu pruefende Dokumente: Datei, Ordner (alle *.md darin) oder
+# Muster. Ein Muster ohne Treffer ist ein Problem.
 DOCS=(
 EOF
     if [[ ${#docs[@]} -gt 0 ]]; then
@@ -149,8 +156,9 @@ EOF
     cat <<EOF
 )
 
-# Ausgenommene Dateien oder Ordner, z. B. datierte Entwuerfe oder Vorlagen,
-# die verbotene Begriffe bewusst nennen.
+# Aus DOCS ausgenommen: Datei, Ordner samt Inhalt oder Muster (ein Muster
+# darf auch einen Ordner treffen, z. B. "docs/drafts-*"). Gedacht fuer
+# datierte Entwuerfe oder Vorlagen, die verbotene Begriffe bewusst nennen.
 EXCLUDE=(
 EOF
     if [[ ${#excludes[@]} -gt 0 ]]; then
@@ -159,11 +167,29 @@ EOF
     cat <<EOF
 )
 
-# Was in keinem geprueften Dokument stehen darf, je Eintrag optional mit
-# "|<grund>":
-#   "<begriff>"         Text, Gross-/Kleinschreibung zaehlt
-#   "/<muster>/<flags>" regulaerer Ausdruck (JavaScript), z. B. Flag i;
-#                       "|" im Muster ist erlaubt, "/" als "\/" schreiben
+# Text, der in keinem Dokument aus DOCS stehen darf. Geprueft wird jede
+# Zeile, auch in Codebloecken; jeder Treffer ist ein Problem (Exit-Code 1).
+# Die Meldung nennt Zeilen, gefundenen Text und den Grund.
+#
+# Ein Eintrag ist eine von zwei Formen, jeweils optional mit "|<grund>":
+#
+#   "<text>"             Genau dieser Text, Gross-/Kleinschreibung zaehlt.
+#                        Trifft auch innerhalb von Woertern: "UID" trifft
+#                        "PUID".
+#
+#   "/<muster>/<flags>"  Regulaerer Ausdruck in JavaScript-Syntax:
+#                          \b        Wortgrenze: "/\bUID\b/" trifft nicht "PUID"
+#                          (a|b)     Alternative: "/\bP(U|G)ID\b/"
+#                          a|b       ganze Alternativen: "/PUID|nobody:users/"
+#                          \d+       Ziffern: "/\b99:\d+\b/"
+#                        Flags: i = Gross-/Kleinschreibung egal, u = Unicode.
+#                        "|" im Muster ist erlaubt: Das Muster endet am
+#                        ersten "/", dem nur Flags und dann "|" oder das
+#                        Zeilenende folgen. Ein "/" im Muster wird "\/".
+#                        Ein ungueltiger Ausdruck bricht mit Exit-Code 2 ab.
+#
+# In Bash-Strings mit doppelten Anfuehrungszeichen bleiben "\b" und "\d"
+# erhalten; Dollarzeichen und Backticks brauchen einen Backslash davor.
 FORBIDDEN=(
     # "PUID|interne Kennung, nicht in Nutzerdoku"
     # "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
@@ -176,9 +202,9 @@ MAX_ALERTS=""
 # Dateien, die es geben muss, je optional mit "|<grund>". Sie zaehlen nur,
 # wenn sie versioniert und nicht leer sind; .md-Dateien brauchen mindestens
 # eine Ueberschrift ("# Titel").
-#   "LICENSE"             ohne Pfad: irgendwo im Projekt
-#   "docs/user-guide.md"  mit Pfad: genau dort, relativ zum Projekt-Root
-#   "./docs/**/*.md"      Muster: mindestens ein Treffer (* ein Ordner, ** beliebig tief)
+#   "LICENSE"             ohne "/": irgendwo im Projekt
+#   "./README.md"         mit "/": genau dort, "./" heisst Projekt-Root
+#   "./docs/**/*.md"      Muster: mindestens ein Treffer
 REQUIRED=(
 EOF
     local required

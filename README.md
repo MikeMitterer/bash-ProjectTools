@@ -505,16 +505,18 @@ deno run --allow-read --allow-run=git src/deno/docs-check.ts --as README.md /pfa
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
-# Dateien oder Ordner (Ordner: alle *.md darin), relativ zum Projekt-Root.
+# Inhaltlich zu prüfende Dokumente: Datei, Ordner (alle *.md darin) oder Muster.
 DOCS=(
     "README.md"
     "docker/README.md"
     "docs"
+    "**/fixtures/**/README.md"
 )
 
-# Ausgenommen, z. B. datierte Entwürfe oder Vorlagen mit verbotenen Begriffen.
+# Aus DOCS ausgenommen: Datei, Ordner samt Inhalt oder Muster.
 EXCLUDE=(
     "docs/superpowers"
+    "docs/**/draft-*.md"
 )
 
 # Text oder regulärer Ausdruck, je optional mit "|<grund>".
@@ -528,33 +530,57 @@ MAX_ALERTS=2
 
 # Dateien, die es geben muss, je optional mit "|<grund>".
 REQUIRED=(
-    "LICENSE"                                # ohne Pfad: irgendwo im Projekt
-    "./README.md"                            # mit Pfad: genau dort
+    "LICENSE"                                # ohne "/": irgendwo im Projekt
+    "./README.md"                            # mit "/": genau dort
     "docs/user-guide.md|im README verlinkt"
     "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
 )
 ```
 
-Grenzwerte setzt nur das Projekt: Ohne `MAX_ALERTS` prüft das Skript die Zahl
-der Hinweisboxen nicht.
+**Pfade und Muster (`DOCS`, `EXCLUDE`, `REQUIRED`):** Pfade gelten ab dem
+Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
+`.gitignore`:
+
+| Zeichen | Bedeutung | Beispiel |
+|---|---|---|
+| `*` | beliebige Zeichen innerhalb eines Ordners | `docs/*.md` |
+| `**` | beliebig viele Ordner | `docs/**/*.md`, `**/README.md` |
+| `?` | genau ein Zeichen | `docs/v?.md` |
+
+Ordner und Muster in `DOCS` treffen nur Markdown-Dateien, die git nicht
+ignoriert, also versionierte und neue, aber keine erzeugten Vorschauen oder
+lokalen Notizen. Ein Muster ohne Treffer ist ein Problem. Ein Muster in
+`EXCLUDE` darf auch einen Ordner treffen (`docs/drafts-*` schließt alles
+darin aus).
+
+**Verbotener Text (`FORBIDDEN`):** Geprüft wird jede Zeile der Dokumente aus
+`DOCS`, auch in Codeblöcken; jeder Treffer ist ein Problem. Ein Eintrag hat
+eine von zwei Formen, jeweils optional mit `|<grund>`:
+
+- **Text** wie `"PUID"`: genau dieser Text, Groß-/Kleinschreibung zählt. Er
+  trifft auch innerhalb von Wörtern, `"UID"` also auch `PUID`.
+- **Regulärer Ausdruck** wie `"/\bP(U|G)ID\b/i"`, in JavaScript-Syntax:
+  `\b` Wortgrenze, `(a|b)` Alternative, `\d+` Ziffern; Flag `i` für beliebige
+  Groß-/Kleinschreibung. Das Muster darf `|` enthalten; es endet am ersten
+  `/`, dem nur Flags und dann `|grund` oder das Zeilenende folgen. Ein `/` im
+  Muster wird als `\/` geschrieben. Ein ungültiger Ausdruck bricht mit
+  Exit-Code 2 ab.
+
+Die Meldung nennt Zeilen, gefundenen Text und Grund. In Bash-Strings mit
+doppelten Anführungszeichen bleiben `\b` und `\d` erhalten; `$` und Backticks
+brauchen einen Backslash davor.
+
+**Grenzwerte (`MAX_ALERTS`)** setzt nur das Projekt: Ohne Eintrag prüft das
+Skript die Zahl der Hinweisboxen nicht.
 
 **Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
-an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`). Mit
-`/` gilt er ab dem Projekt-Root; `./README.md` meint nur das README im Root.
-Muster: `*` beliebige Zeichen in einem Ordner, `**` beliebig viele Ordner, `?`
-ein Zeichen. Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei
-nur auf der Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei
-braucht zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von
-Codeblöcken. Fehlt eine Pflichtdatei, ist das ein Problem (Exit-Code 1).
-Pflichtdateien prüft `--run` nur ohne Pfadangabe, also beim Lauf über die
-ganze Config.
-
-Ein `FORBIDDEN`-Eintrag ist entweder **Text** (Groß-/Kleinschreibung zählt)
-oder ein **regulärer Ausdruck** in JavaScript-Syntax als `/muster/flags`,
-etwa mit `i` für beliebige Schreibweise. Das Muster darf `|` enthalten; es
-endet am ersten `/`, dem nur Flags und dann `|grund` oder das Zeilenende
-folgen. Ein `/` im Muster wird als `\/` geschrieben. Die Meldung nennt den
-gefundenen Text. Ein ungültiger Ausdruck bricht mit Exit-Code 2 ab.
+an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit
+`/` gilt er ab dem Projekt-Root, `./README.md` meint nur das README im Root.
+Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
+Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
+zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
+Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien prüft `--run`
+nur ohne Pfadangabe, also beim Lauf über die ganze Config.
 
 Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
 sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,

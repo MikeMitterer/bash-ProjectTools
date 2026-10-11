@@ -17,7 +17,7 @@
  *                          BEGRIFF[|GRUND] (Text, Groß-/Kleinschreibung zählt)
  *                          oder /MUSTER/FLAGS[|GRUND] (regulärer Ausdruck, z. B.
  *                          /\bP[UG]ID\b/ oder /nobody:users/i)
- *   --exclude PFAD         Datei oder Ordner (relativ zur Wurzel) auslassen
+ *   --exclude PFAD         Datei, Ordner oder Muster (relativ zur Wurzel) auslassen
  *   --max-alerts N         Höchstens N Hinweisboxen je Dokument (ohne: keine Grenze)
  *   --require EINTRAG      Pflichtdatei: NAME (irgendwo), PFAD oder MUSTER (* und **)
  *                          ab Root, optional |GRUND; zählt nur versioniert,
@@ -25,7 +25,9 @@
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
  *
- * Ordner werden nach *.md und *.mdx durchsucht. Links gelten relativ zum Ort
+ * DATEI|ORDNER darf auch ein Muster sein (`*` in einem Ordner, `**` beliebig
+ * tief, `?` ein Zeichen). Ordner und Muster treffen *.md und *.mdx, die git
+ * nicht ignoriert; ein Muster ohne Treffer ist ein Problem. Links gelten relativ zum Ort
  * der Datei. Befehle und Pfade in Code-Formatierung gelten bei einem README
  * relativ zu seinem Verzeichnis (Unterprojekt), sonst relativ zur Wurzel.
  * Befehle werden in dem Verzeichnis geprüft, in dem sie laufen (cd im
@@ -924,11 +926,14 @@ export function checkDocument(
   return [...merged.values()].sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0));
 }
 
-/** Markdown-Dateien eines Ordners (relativ zur Wurzel), ohne Symlinks und sensible Dateien. */
+/**
+ * Markdown-Dateien eines Ordners (relativ zur Wurzel, "" ist die Wurzel),
+ * ohne Symlinks und sensible Dateien.
+ */
 function markdownFiles(root: string, directory: string): string[] {
   const result: string[] = [];
   for (const entry of Deno.readDirSync(`${root}/${directory}`)) {
-    const path = `${directory}/${entry.name}`;
+    const path = directory ? `${directory}/${entry.name}` : entry.name;
     if (entry.isSymlink || isSensitive(path)) continue;
     if (entry.isDirectory && !SKIP_DIRS.has(entry.name)) result.push(...markdownFiles(root, path));
     else if (entry.isFile && DOC_SUFFIXES.has(suffix(entry.name))) result.push(path);
@@ -936,30 +941,76 @@ function markdownFiles(root: string, directory: string): string[] {
   return result.sort();
 }
 
-/** Dateien und Ordner (relativ zur Wurzel) zu einer Liste von Dokumenten, ohne ausgeschlossene Pfade. */
+/**
+ * Markdown-Dateien, die Ordner und Muster treffen dürfen: versionierte und
+ * neue, aber keine von git ignorierten (erzeugte Vorschauen, lokale Notizen).
+ * Ohne git alle Markdown-Dateien auf der Platte.
+ */
+function candidateDocuments(root: string): string[] {
+  const listed = git(root, "ls-files", "--cached", "--others", "--exclude-standard");
+  if (!listed) return markdownFiles(root, "");
+  return [...new Set(listed.split("\n"))]
+    .filter((path) =>
+      DOC_SUFFIXES.has(suffix(path)) && !isSensitive(path) &&
+      !path.split("/").some((part) => SKIP_DIRS.has(part)) && exists(`${root}/${path}`)
+    )
+    .sort();
+}
+
+/** Enthält der Pfad ein Glob-Muster (`*`, `**`, `?`)? */
+function isGlob(path: string): boolean {
+  return /[*?]/.test(path);
+}
+
+/**
+ * Dateien, Ordner und Glob-Muster (relativ zur Wurzel) zu einer Liste von
+ * Dokumenten, ohne ausgeschlossene Pfade. Ein Muster trifft Markdown-Dateien
+ * auf der Platte; ohne Treffer gilt es wie ein fehlender Pfad. Ein
+ * Ausschluss ist ein Pfad (Datei oder Ordner samt Inhalt) oder ein Muster,
+ * das die Datei oder einen ihrer Ordner trifft.
+ */
 export function expandDocuments(
   root: string,
   inputs: string[],
   excludes: string[],
-): { documents: string[]; missing: string[] } {
-  const excluded = excludes.map(normalize);
+): { documents: string[]; missing: Array<{ input: string; reason: string }> } {
+  const excluded = excludes.map((entry) => normalize(entry));
   const isExcluded = (path: string) =>
-    excluded.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    excluded.some((entry) => {
+      if (!isGlob(entry)) return path === entry || path.startsWith(`${entry}/`);
+      const matcher = globToRegExp(entry);
+      const parts = path.split("/");
+      return parts.some((_, index) => matcher.test(parts.slice(0, index + 1).join("/")));
+    });
   const documents: string[] = [];
-  const missing: string[] = [];
+  const missing: Array<{ input: string; reason: string }> = [];
+  let candidates: string[] | undefined;
+  const add = (found: string[]) => {
+    for (const document of found) {
+      if (!isExcluded(document) && !documents.includes(document)) documents.push(document);
+    }
+  };
   for (const input of inputs) {
     const path = normalize(input);
+    if (isGlob(path)) {
+      candidates ??= candidateDocuments(root);
+      const matcher = globToRegExp(path);
+      const found = candidates.filter((document) => matcher.test(document));
+      if (!found.length) missing.push({ input, reason: "Muster trifft keine Markdown-Datei" });
+      add(found);
+      continue;
+    }
     let info: Deno.FileInfo;
     try {
       info = Deno.statSync(`${root}/${path}`);
     } catch {
-      missing.push(input);
+      missing.push({ input, reason: "Datei oder Ordner fehlt" });
       continue;
     }
-    const found = info.isDirectory ? markdownFiles(root, path) : isSensitive(path) ? [] : [path];
-    for (const document of found) {
-      if (!isExcluded(document) && !documents.includes(document)) documents.push(document);
-    }
+    if (info.isDirectory) {
+      candidates ??= candidateDocuments(root);
+      add(candidates.filter((document) => path === "" || document.startsWith(`${path}/`)));
+    } else if (!isSensitive(path)) add([path]);
   }
   return { documents, missing };
 }
@@ -1164,7 +1215,7 @@ function main(args: string[]): number {
   const project = loadProject(options.root);
   // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
   const targets: Array<[string, string]> = [];
-  let missing: string[] = [];
+  let missing: Array<{ input: string; reason: string }> = [];
   if (options.placement) {
     targets.push([options.inputs[0], options.placement]);
   } else {
@@ -1196,12 +1247,10 @@ function main(args: string[]): number {
   const width = Math.max(
     0,
     ...results.map((result) => result.name.length),
-    ...missing.map((path) => path.length),
+    ...missing.map(({ input }) => input.length),
   );
-  for (const path of missing) {
-    console.log(
-      `  ${paint("31", "✗")} ${path.padEnd(width)}   ${paint("31", "Datei oder Ordner fehlt")}`,
-    );
+  for (const { input, reason } of missing) {
+    console.log(`  ${paint("31", "✗")} ${input.padEnd(width)}   ${paint("31", reason)}`);
   }
   for (const { name, findings } of results) {
     const failed = findings.some((finding) => finding.level === "problem");

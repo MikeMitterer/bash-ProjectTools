@@ -76,6 +76,9 @@ function fixture(): string {
   write(root, "req/empty.md", "  \n");
   write(root, "req/plain.md", "Nur Text, kein Titel.\n");
   write(root, "req/fenced.md", "```\n# kein Titel\n```\n");
+  // Von git ignoriert: Muster und Ordner dürfen sie nicht treffen.
+  write(root, ".gitignore", "gen/\n");
+  write(root, "gen/out.md", "# Erzeugt\n");
   // Sensible Dateien, absichtlich versioniert: Auch dann nie lesen.
   write(root, ".env", "ENV_ONLY_VAR=CANARY_ENV\nleak:\n");
   write(root, "config/secrets.yaml", "SECRETS_ONLY_VAR: CANARY_SECRETS\n");
@@ -184,6 +187,16 @@ const pattern = run(
 const invalid = run("--root", root, "--forbid", "/[/", `${root}/README.md`);
 const alerts = run("--root", root, "--max-alerts", "2", `${root}/ui/README.md`);
 const alertsUnlimited = run("--root", root, `${root}/ui/README.md`);
+// Muster in DOCS und EXCLUDE; req/a/* schließt req/a/b/deep.md über seinen Ordner aus.
+const globs = run(
+  "--root",
+  root,
+  "--exclude",
+  "req/a/*",
+  "req/**/*.md",
+  "gen/**/*.md",
+  "nix/*.md",
+);
 // Nur Pflichtdateien, ohne Dokumente. README.md liegt nur auf der Platte.
 const required = run(
   "--root",
@@ -383,6 +396,20 @@ Deno.test("Pflichtdateien: unversioniert, leer oder Markdown ohne Überschrift z
   );
   assert(required.output.includes("9 Pflichtdateien geprüft · 5 Probleme"), required.output);
   assert(required.code === 1, "fehlende Pflichtdateien ergeben Exit-Code 1");
+});
+
+Deno.test("DOCS und EXCLUDE mit Mustern; ignorierte Dateien zählen nicht", () => {
+  assert(
+    globs.output.includes("3 Dokumente geprüft"),
+    `req/**/*.md ohne req/a/…:\n${globs.output}`,
+  );
+  assert(!globs.output.includes("req/a/b/deep.md"), "Ausschluss über Ordner-Muster");
+  assert(
+    lineFor(globs.output, "gen/**/*.md").includes("Muster trifft keine Markdown-Datei"),
+    "von git ignorierte Dateien zählen nicht",
+  );
+  assert(lineFor(globs.output, "nix/*.md").includes("Muster trifft keine"), "Muster ohne Treffer");
+  assert(globs.code === 1, "Muster ohne Treffer ist ein Problem");
 });
 
 Deno.test("Aufräumen", () => {
