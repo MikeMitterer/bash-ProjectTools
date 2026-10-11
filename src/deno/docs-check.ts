@@ -18,6 +18,7 @@
  *                          oder /MUSTER/FLAGS[|GRUND] (regulärer Ausdruck, z. B.
  *                          /\bP[UG]ID\b/ oder /nobody:users/i)
  *   --exclude PFAD         Datei oder Ordner (relativ zur Wurzel) auslassen
+ *   --max-alerts N         Höchstens N Hinweisboxen je Dokument (ohne: keine Grenze)
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
  *
@@ -33,8 +34,11 @@
  * Secrets, Token, Zugangs- und Datenbankdateien) – auch nicht über
  * Makefile-Einbindungen.
  *
- * Zeichen: `!` Problem (Exit-Code 1), `?` von Hand prüfen, `~` Ökosystem, das
- * das Skript nicht prüft.
+ * Ausgabe: zuerst jedes geprüfte Dokument mit Ergebnis, dann je Befund
+ * Kategorie, Zeilen, was nicht stimmt und was zu tun ist. Kategorien:
+ * „Problem“ (Exit-Code 1), „Prüfen“ (ein Mensch entscheidet), „Ungeprüft“
+ * (Befehle eines Ökosystems, das das Skript nicht kennt), „Info“ (nur mit
+ * --verbose). --config-name nennt die Config in der Kopfzeile.
  *
  * Tests: deno test --allow-read --allow-write --allow-run=git,deno tests/deno/docs-check.test.ts
  */
@@ -206,11 +210,16 @@ export function parseForbidden(entry: string): Forbidden | string {
   return term ? { term, reason: reason.join("|").trim() } : `leerer Begriff: ${entry}`;
 }
 
-/** Ein Befund: `!` Problem, `?` von Hand prüfen, `~` nicht prüfbar, `i` Information. */
+/**
+ * Ein Befund. `problem` lässt die Prüfung scheitern; `check` muss ein Mensch
+ * ansehen; `unchecked` kann das Skript nicht prüfen; `info` erscheint nur mit
+ * --verbose. `message` sagt, was nicht stimmt, `advice`, was zu tun ist.
+ */
 export interface Finding {
-  line: number;
-  marker: "!" | "?" | "~" | "i";
+  lines: number[];
+  level: "problem" | "check" | "unchecked" | "info";
   message: string;
+  advice: string;
 }
 
 // ------------------------------------------------------------ Hilfen
@@ -534,29 +543,44 @@ function upward<T>(map: Map<string, T>, directory: string): [string, T] | undefi
   }
 }
 
-type Report = (marker: Finding["marker"], message: string) => void;
+type Report = (level: Finding["level"], message: string, advice: string) => void;
+
+/** Ort eines Befehls in Worten: „in der Wurzel“ oder „in api/“. */
+function inDirectory(directory: string): string {
+  return directory === "." ? "in der Wurzel" : `in ${directory}/`;
+}
 
 /** Prüft einen einzelnen Befehl gegen das Verzeichnis, in dem er läuft. */
 function checkCommand(command: string, directory: string, facts: Facts, report: Report): void {
-  const where = (dir: string) => (dir === "." ? "der Wurzel" : dir);
+  const fix = "Befehl korrigieren oder entfernen.";
   for (const match of command.matchAll(/\bmake\s+(?:-C\s+(\S+)\s+)?([A-Za-z0-9_.-]+)/g)) {
     const target = match[2];
     if (target.includes("=") || target.startsWith("-")) continue;
     const makeDirectory = match[1] ? join(directory, match[1]) : directory;
     const info = facts.makeTargets.get(makeDirectory);
-    if (!info) report("!", `make ${target} – kein Makefile in ${where(makeDirectory)}`);
-    else if (!info.targets.has(target)) {
+    if (!info) {
+      report(
+        "problem",
+        `\`make ${target}\`: Es gibt kein Makefile ${inDirectory(makeDirectory)}.`,
+        fix,
+      );
+    } else if (!info.targets.has(target)) {
       if (info.unresolved) {
         report(
-          "?",
-          `make ${target} – nicht im Makefile in ${
-            where(makeDirectory)
-          }; es bindet Dateien über Variablen ein, prüfen`,
+          "check",
+          `\`make ${target}\`: Das Target steht nicht im Makefile ${inDirectory(makeDirectory)}. ` +
+            "Das Makefile bindet aber Dateien über Variablen ein, die das Skript nicht auflösen kann.",
+          `Mit \`make help\` nachsehen, ob es das Target gibt; sonst ${fix.toLowerCase()}`,
         );
-      } else {report(
-          "!",
-          `make ${target} – kein solches Target im Makefile in ${where(makeDirectory)}`,
-        );}
+      } else {
+        report(
+          "problem",
+          `\`make ${target}\`: Dieses Target gibt es im Makefile ${
+            inDirectory(makeDirectory)
+          } nicht.`,
+          fix,
+        );
+      }
     }
   }
   for (
@@ -567,17 +591,38 @@ function checkCommand(command: string, directory: string, facts: Facts, report: 
     const prefix = match[1] ?? match[3];
     const npmDirectory = prefix ? join(directory, prefix) : directory;
     const scripts = facts.npmScripts.get(npmDirectory);
-    if (!scripts) report("!", `npm run ${match[2]} – kein package.json in ${where(npmDirectory)}`);
-    else if (!scripts.has(match[2])) {
-      report("!", `npm run ${match[2]} – kein Skript im package.json in ${where(npmDirectory)}`);
+    if (!scripts) {
+      report(
+        "problem",
+        `\`npm run ${match[2]}\`: Es gibt kein package.json ${inDirectory(npmDirectory)}.`,
+        fix,
+      );
+    } else if (!scripts.has(match[2])) {
+      report(
+        "problem",
+        `\`npm run ${match[2]}\`: Dieses Skript steht nicht im package.json ${
+          inDirectory(npmDirectory)
+        }.`,
+        fix,
+      );
     }
   }
   for (const match of command.matchAll(/\bdeno\s+task\s+([\w:.-]+)/g)) {
     const found = upward(facts.denoTasks, directory);
     if (!found) {
-      report("!", `deno task ${match[1]} – keine deno.json in ${where(directory)} oder darüber`);
+      report(
+        "problem",
+        `\`deno task ${match[1]}\`: Es gibt keine deno.json ${
+          inDirectory(directory)
+        } oder darüber.`,
+        fix,
+      );
     } else if (!found[1].has(match[1])) {
-      report("!", `deno task ${match[1]} – kein Task in ${found[0]}/deno.json`);
+      report(
+        "problem",
+        `\`deno task ${match[1]}\`: Dieser Task steht nicht in ${found[0]}/deno.json.`,
+        fix,
+      );
     }
   }
   for (const match of command.matchAll(/\b(uv|poetry|pdm|hatch)\s+run\s+(?:--\S+\s+)*([\w.-]+)/g)) {
@@ -586,10 +631,9 @@ function checkCommand(command: string, directory: string, facts: Facts, report: 
     const found = upward(facts.pythonScripts, directory);
     if (!found || !found[1].has(name)) {
       report(
-        "?",
-        `${
-          match[1]
-        } run ${name} – kein Skript in pyproject.toml; Werkzeug aus der Umgebung? prüfen`,
+        "check",
+        `\`${match[1]} run ${name}\`: ${name} ist kein Skript in pyproject.toml.`,
+        `Prüfen, ob ${name} ein installiertes Werkzeug ist; sonst ${fix.toLowerCase()}`,
       );
     }
   }
@@ -598,18 +642,21 @@ function checkCommand(command: string, directory: string, facts: Facts, report: 
   ) {
     if (!facts.cargoNames.has(match[1])) {
       report(
-        "!",
-        `cargo run … ${match[1]} – kein solches Paket oder Binary in einer Cargo.toml`,
+        "problem",
+        `\`cargo run\`: Ein Paket oder Binary „${match[1]}“ gibt es in keiner Cargo.toml.`,
+        fix,
       );
     }
   }
   const unverified = command.match(UNVERIFIED);
   if (unverified) {
+    const tool = unverified[1].split(/\s+/)[0];
     report(
-      "~",
-      `${command.trim().slice(0, 80)} – ${
-        unverified[1].split(/\s+/)[0]
-      }-Befehle prüft dieses Skript nicht`,
+      "unchecked",
+      `\`${
+        command.trim().slice(0, 60)
+      }\`: ${tool}-Befehle kann das Skript nicht gegen das Projekt prüfen.`,
+      "Von Hand prüfen, ob der Befehl noch stimmt.",
     );
   }
 }
@@ -630,12 +677,17 @@ function checkClaims(
       path.slice(localPrefix.length).split("/")[0]
     ),
   );
-  const seen = new Set<string>();
-  // Jede Meldung nur einmal, auch wenn der Befehl mehrfach im Dokument steht.
-  const once = (line: number, marker: Finding["marker"], message: string) => {
-    if (seen.has(`${marker}:${message}`)) return;
-    seen.add(`${marker}:${message}`);
-    add({ line, marker, message });
+  // Gleiche Meldungen zusammenfassen: ein Befund mit allen Zeilen.
+  const byMessage = new Map<string, Finding>();
+  const once = (line: number, level: Finding["level"], message: string, advice: string) => {
+    const known = byMessage.get(message);
+    if (known) {
+      if (!known.lines.includes(line)) known.lines.push(line);
+      return;
+    }
+    const finding = { lines: [line], level, message, advice };
+    byMessage.set(message, finding);
+    add(finding);
   };
   let block = -2;
   let directory: string | undefined = baseDirectory;
@@ -655,24 +707,32 @@ function checkClaims(
         if (/\b(make|npm|deno|uv|poetry|cargo)\s/.test(part)) {
           once(
             line,
-            "?",
-            `${part.trim().slice(0, 60)} – läuft in unbekanntem Verzeichnis (cd), nicht geprüft`,
+            "unchecked",
+            `\`${
+              part.trim().slice(0, 60)
+            }\`: Der Befehl läuft nach einem \`cd\` in ein Verzeichnis, ` +
+              "das das Skript nicht auflösen kann.",
+            "Von Hand prüfen, ob der Befehl noch stimmt.",
           );
         }
         continue;
       }
-      checkCommand(part, directory, facts, (marker, message) => once(line, marker, message));
+      checkCommand(
+        part,
+        directory,
+        facts,
+        (level, message, advice) => once(line, level, message, advice),
+      );
     }
     for (const match of snippet.matchAll(/\b([A-Z][A-Z0-9]*_[A-Z0-9_]+)\b/g)) {
       const name = match[1];
-      if (seen.has(`var:${name}`)) continue;
-      seen.add(`var:${name}`);
       if (facts.variables.has(name) || mentionedOutsideDocs(name, project, cache)) continue;
-      add({
+      once(
         line,
-        marker: "?",
-        message: `${name} – im Projekt nicht gefunden; externe Bibliothek oder erfunden? prüfen`,
-      });
+        "check",
+        `\`${name}\`: Diese Variable kommt in keiner versionierten Projektdatei vor.`,
+        "Prüfen, ob sie aus einer eingebundenen Bibliothek stammt; sonst ist sie veraltet und gehört raus.",
+      );
     }
     // Repo-Pfade dürfen relativ zum Ort des Dokuments oder zur Wurzel stehen.
     const pathLike = snippet.trim();
@@ -682,9 +742,27 @@ function checkClaims(
       const found = [join(baseDirectory, pathLike), normalize(pathLike)].some((path) =>
         exists(`${project.root}/${path}`)
       );
-      if (!found) once(line, "!", `${pathLike} – Pfad gibt es im Repository nicht`);
+      if (!found) {
+        once(
+          line,
+          "problem",
+          `\`${pathLike}\`: Diesen Pfad gibt es im Repository nicht.`,
+          "Pfad korrigieren oder entfernen.",
+        );
+      }
     }
   }
+}
+
+/**
+ * Projektregeln aus der Config. Grenzwerte gelten nur, wenn das Projekt sie
+ * setzt; das Skript bringt keine eigenen mit.
+ */
+export interface Rules {
+  forbidden: Forbidden[];
+  /** Höchstzahl farbiger Hinweisboxen (`> [!WARNING]` usw.) je Dokument. */
+  maxAlerts?: number;
+  verbose: boolean;
 }
 
 /**
@@ -696,9 +774,9 @@ export function checkDocument(
   path: string,
   project: Project,
   placement: string,
-  forbidden: Forbidden[] = [],
-  verbose = false,
+  rules: Rules = { forbidden: [], verbose: false },
 ): Finding[] {
+  const { forbidden, verbose } = rules;
   const findings: Finding[] = [];
   const add = (finding: Finding) => findings.push(finding);
   const text = readText(path);
@@ -726,10 +804,22 @@ export function checkDocument(
       const [pathPart, anchor] = link.split("#");
       if (!pathPart) {
         if (anchor && !slugs.has(anchor)) {
-          add({ line: index + 1, marker: "!", message: `Anker fehlt im Dokument: #${anchor}` });
+          add({
+            lines: [index + 1],
+            level: "problem",
+            message: `Link auf #${anchor}: Im Dokument gibt es keine Überschrift dazu.`,
+            advice: "Link an die Überschrift anpassen oder die Überschrift wiederherstellen.",
+          });
         }
       } else if (!exists(`${project.root}/${join(home, safeDecode(pathPart))}`)) {
-        add({ line: index + 1, marker: "!", message: `Datei fehlt: ${link}` });
+        add({
+          lines: [index + 1],
+          level: "problem",
+          message: `${
+            /^(!|<img|<source)/.test(match[0]) ? "Bild" : "Link"
+          } auf ${link}: Die Datei gibt es nicht.`,
+          advice: "Pfad korrigieren, Datei anlegen oder Link entfernen.",
+        });
       }
     }
   });
@@ -737,11 +827,12 @@ export function checkDocument(
   for (const [anchor, sources] of [...inboundAnchors(project, target)].sort()) {
     if (!slugs.has(anchor)) {
       add({
-        line: 0,
-        marker: "!",
-        message: `Überschrift für #${anchor} fehlt; verlinkt aus ${
+        lines: [],
+        level: "problem",
+        message: `Überschrift für #${anchor} fehlt, obwohl ${
           [...sources].sort().slice(0, 3).join(", ")
-        }`,
+        } darauf verlinkt.`,
+        advice: "Überschrift wiederherstellen oder den Link in der anderen Datei anpassen.",
       });
     }
   }
@@ -750,41 +841,50 @@ export function checkDocument(
   // Dokumente (z. B. docs/development.md) beschreiben das Projekt von der Wurzel aus.
   checkClaims(text, project, collectFacts(project), isReadme ? home : ".", add);
 
-  if (isReadme) {
-    // Zeile und Art je Box, damit die Meldung ohne Nachsehen verständlich ist.
+  // Grenze für Hinweisboxen nur, wenn die Projekt-Config eine setzt.
+  if (rules.maxAlerts !== undefined) {
     const alerts = [...text.matchAll(ALERT)].map((match) => ({
       line: text.slice(0, match.index).split("\n").length,
       kind: `[!${match[1]}]`,
     }));
-    if (alerts.length > 2) {
+    if (alerts.length > rules.maxAlerts) {
       add({
-        line: 0,
-        marker: "?",
-        message: `${alerts.map((alert) => alert.line).join(", ")}: ${alerts.length} Hinweisboxen (${
+        lines: alerts.map((alert) => alert.line),
+        level: "check",
+        message: `${alerts.length} farbige Hinweisboxen (${
           alerts.map((alert) => alert.kind).join(", ")
-        }); mehr als 2 entwerten jede einzelne`,
+        }); die Config erlaubt höchstens ${rules.maxAlerts} (MAX_ALERTS).`,
+        advice: "Nur die wirklich wichtigen behalten oder MAX_ALERTS in der Config anpassen.",
       });
     }
   }
 
   for (const { term, reason, pattern } of forbidden) {
+    const hits = new Map<string, number[]>();
     lines.forEach((content, index) => {
       const hit = pattern ? content.match(pattern)?.[0] : content.includes(term) ? term : undefined;
-      if (hit === undefined) return;
-      const shown = pattern
-        ? `verbotenes Muster ${term} („${hit}“)`
-        : `verbotener Begriff „${term}“`;
-      add({
-        line: index + 1,
-        marker: "!",
-        message: `${shown}${reason ? ` – ${reason}` : ""}`,
-      });
+      if (hit !== undefined) hits.set(hit, [...(hits.get(hit) ?? []), index + 1]);
     });
+    for (const [hit, hitLines] of hits) {
+      add({
+        lines: hitLines,
+        level: "problem",
+        message: `Verbotener Text „${hit}“${pattern ? ` (Muster ${term})` : ""}${
+          reason ? `. Grund: ${reason}` : ""
+        }.`,
+        advice: "Stelle umformulieren; laut Projekt-Config gehört der Text nicht in diese Doku.",
+      });
+    }
   }
 
   lines.forEach((content, index) => {
     if (/\b(TODO|FIXME|TBD|lorem ipsum)\b|<your[ -]|\[insert /i.test(content)) {
-      add({ line: index + 1, marker: "!", message: `Platzhalter: ${content.trim().slice(0, 80)}` });
+      add({
+        lines: [index + 1],
+        level: "problem",
+        message: `Platzhalter: „${content.trim().slice(0, 70)}“.`,
+        advice: "Ausfüllen oder entfernen.",
+      });
     }
   });
 
@@ -792,16 +892,33 @@ export function checkDocument(
     for (const [line, content] of prose) {
       for (const match of content.matchAll(COUNT)) {
         if (!UNIT.test(match[0])) {
-          add({ line, marker: "i", message: `Zahlenangabe, gegen die Quelle prüfen: ${match[0]}` });
+          add({
+            lines: [line],
+            level: "info",
+            message: `Zahlenangabe „${match[0]}“.`,
+            advice: "Gegen die Quelle prüfen; Zahlen veralten leicht.",
+          });
         }
       }
     }
     for (const url of [...new Set(text.match(/https?:\/\/[^\s)"'>`]+/g) ?? [])].sort()) {
-      add({ line: 0, marker: "i", message: `externe URL: ${url}` });
+      add({
+        lines: [],
+        level: "info",
+        message: `Externe URL ${url}.`,
+        advice: "Prüfen, ob sie noch erreichbar ist.",
+      });
     }
   }
 
-  return findings.sort((a, b) => a.line - b.line);
+  // Gleiche Befunde an mehreren Stellen zu einem Befund mit allen Zeilen zusammenfassen.
+  const merged = new Map<string, Finding>();
+  for (const finding of findings) {
+    const known = merged.get(`${finding.level}:${finding.message}`);
+    if (known) known.lines.push(...finding.lines.filter((line) => !known.lines.includes(line)));
+    else merged.set(`${finding.level}:${finding.message}`, finding);
+  }
+  return [...merged.values()].sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0));
 }
 
 /** Markdown-Dateien eines Ordners (relativ zur Wurzel), ohne Symlinks und sensible Dateien. */
@@ -849,9 +966,11 @@ export function expandDocuments(
 interface Options {
   root: string;
   forbidden: Forbidden[];
+  maxAlerts?: number;
   excludes: string[];
   placement?: string;
   verbose: boolean;
+  configName?: string;
   inputs: string[];
 }
 
@@ -873,7 +992,14 @@ function parseArgs(args: string[]): Options | string {
       } else if (arg === "--exclude") options.excludes.push(value());
       else if (arg === "--as") options.placement = value();
       else if (arg === "--verbose") options.verbose = true;
-      else if (arg.startsWith("--")) return `unbekannte Option: ${arg}`;
+      else if (arg === "--config-name") options.configName = value();
+      else if (arg === "--max-alerts") {
+        const limit = Number(value());
+        if (!Number.isInteger(limit) || limit < 0) {
+          return "--max-alerts braucht eine ganze Zahl ab 0";
+        }
+        options.maxAlerts = limit;
+      } else if (arg.startsWith("--")) return `unbekannte Option: ${arg}`;
       else options.inputs.push(arg);
     } catch (error) {
       return (error as Error).message;
@@ -884,63 +1010,130 @@ function parseArgs(args: string[]): Options | string {
   return options;
 }
 
-function main(args: string[]): number {
-  const options = parseArgs(args);
-  if (typeof options === "string") {
-    console.error(`Fehler: ${options}`);
-    console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--as PFAD] [--verbose] DATEI|ORDNER...",
-    );
-    return 2;
-  }
-  const project = loadProject(options.root);
-  // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
-  const targets: Array<[string, string]> = [];
-  let missingCount = 0;
-  if (options.placement) {
-    targets.push([options.inputs[0], options.placement]);
-  } else {
-    const { documents, missing } = expandDocuments(
-      project.root,
-      options.inputs.map((input) => relativeToRoot(project.root, input)),
-      options.excludes,
-    );
-    for (const path of missing) console.log(`! ${path} – Datei oder Ordner fehlt`);
-    missingCount = missing.length;
-    for (const document of documents) targets.push([`${project.root}/${document}`, document]);
-  }
+const LABELS: Record<Finding["level"], string> = {
+  problem: "Problem",
+  check: "Prüfen",
+  unchecked: "Ungeprüft",
+  info: "Info",
+};
 
-  let problems = missingCount;
-  let hints = 0;
-  for (const [path, placement] of targets) {
-    const findings = checkDocument(path, project, placement, options.forbidden, options.verbose);
-    const fileProblems = findings.filter((finding) => finding.marker === "!").length;
-    problems += fileProblems;
-    hints += findings.filter((finding) => finding.marker === "?" || finding.marker === "~").length;
-    if (!findings.length && !options.verbose) continue;
-    console.log(
-      `\n${normalize(placement)}${
-        fileProblems ? `  (${count(fileProblems, "Problem", "Probleme")})` : ""
-      }`,
-    );
-    for (const { line, marker, message } of findings) {
-      console.log(`  ${marker} ${line ? `${line}: ` : ""}${message}`);
-    }
-  }
-  console.log(
-    `\n${count(targets.length, "Dokument", "Dokumente")} geprüft · ${
-      count(problems, "Problem", "Probleme")
-    } · ${count(hints, "Hinweis", "Hinweise")}`,
-  );
-  if (problems || hints) {
-    console.log("! = Problem, ? = von Hand prüfen, ~ = nicht prüfbares Ökosystem");
-  }
-  return problems ? 1 : 0;
+/** ANSI-Farben nur im Terminal und ohne NO_COLOR. */
+function painter(): (code: string, text: string) => string {
+  const enabled = Deno.stdout.isTerminal() && !Deno.env.get("NO_COLOR");
+  return (code, text) => (enabled ? `\x1b[${code}m${text}\x1b[0m` : text);
 }
 
 /** Zahl mit passender Einzahl oder Mehrzahl. */
 function count(value: number, one: string, many: string): string {
   return `${value} ${value === 1 ? one : many}`;
+}
+
+/** Kurzfassung der Befunde eines Dokuments, z. B. „1 Problem, 2 Stellen prüfen“. */
+function tally(findings: Finding[]): string {
+  const parts: string[] = [];
+  const of = (level: Finding["level"]) =>
+    findings.filter((finding) => finding.level === level).length;
+  if (of("problem")) parts.push(count(of("problem"), "Problem", "Probleme"));
+  if (of("check")) parts.push(`${count(of("check"), "Stelle", "Stellen")} prüfen`);
+  if (of("unchecked")) parts.push(`${count(of("unchecked"), "Befehl", "Befehle")} ungeprüft`);
+  if (of("info")) parts.push(count(of("info"), "Info", "Infos"));
+  return parts.join(", ") || "in Ordnung";
+}
+
+function main(args: string[]): number {
+  const options = parseArgs(args);
+  if (typeof options === "string") {
+    console.error(`Fehler: ${options}`);
+    console.error(
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--as PFAD] [--verbose] DATEI|ORDNER...",
+    );
+    return 2;
+  }
+  const paint = painter();
+  const project = loadProject(options.root);
+  // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
+  const targets: Array<[string, string]> = [];
+  let missing: string[] = [];
+  if (options.placement) {
+    targets.push([options.inputs[0], options.placement]);
+  } else {
+    const expanded = expandDocuments(
+      project.root,
+      options.inputs.map((input) => relativeToRoot(project.root, input)),
+      options.excludes,
+    );
+    missing = expanded.missing;
+    for (const document of expanded.documents) {
+      targets.push([`${project.root}/${document}`, document]);
+    }
+  }
+  const results = targets.map(([path, placement]) => ({
+    name: options.placement ? `${normalize(placement)} (Entwurf ${path})` : normalize(placement),
+    findings: checkDocument(path, project, placement, options),
+  }));
+
+  // Übersicht: was geprüft wurde, je Dokument mit Ergebnis.
+  const source = options.configName ? ` laut ${options.configName}` : "";
+  console.log(
+    paint("1", `Dokumentprüfung: ${count(results.length, "Dokument", "Dokumente")}${source}`),
+  );
+  if (options.excludes.length) console.log(`Ausgenommen: ${options.excludes.join(", ")}`);
+  console.log();
+  const width = Math.max(
+    0,
+    ...results.map((result) => result.name.length),
+    ...missing.map((path) => path.length),
+  );
+  for (const path of missing) {
+    console.log(
+      `  ${paint("31", "✗")} ${path.padEnd(width)}   ${paint("31", "Datei oder Ordner fehlt")}`,
+    );
+  }
+  for (const { name, findings } of results) {
+    const failed = findings.some((finding) => finding.level === "problem");
+    const open = findings.some((finding) =>
+      finding.level === "check" || finding.level === "unchecked"
+    );
+    const mark = failed ? paint("31", "✗") : open ? paint("33", "?") : paint("32", "✓");
+    console.log(`  ${mark} ${name.padEnd(width)}   ${tally(findings)}`);
+  }
+
+  // Einzelheiten je Dokument mit Befunden.
+  const colors: Record<Finding["level"], string> = {
+    problem: "31",
+    check: "33",
+    unchecked: "36",
+    info: "90",
+  };
+  const labelWidth = Math.max(...Object.values(LABELS).map((label) => label.length));
+  const indent = " ".repeat(labelWidth + 4);
+  for (const { name, findings } of results) {
+    if (!findings.length) continue;
+    console.log(`\n${paint("1", name)}`);
+    for (const { lines, level, message, advice } of findings) {
+      const where = lines.length
+        ? `${lines.length === 1 ? "Zeile" : "Zeilen"} ${lines.join(", ")} · `
+        : "";
+      console.log(
+        `  ${paint(colors[level], LABELS[level].padEnd(labelWidth))}  ${where}${message}`,
+      );
+      console.log(`${indent}→ ${advice}`);
+    }
+  }
+
+  const all = results.flatMap((result) => result.findings);
+  const problems = all.filter((finding) => finding.level === "problem").length + missing.length;
+  const open =
+    all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length;
+  const verdict = problems
+    ? paint("31", count(problems, "Problem", "Probleme"))
+    : paint("32", "keine Probleme");
+  console.log(
+    `\nErgebnis: ${count(results.length, "Dokument", "Dokumente")} geprüft · ${verdict}` +
+      (open ? ` · ${count(open, "Stelle", "Stellen")} von Hand prüfen` : ""),
+  );
+  if (open && !problems) console.log("Stellen zum Prüfen lassen die Prüfung nicht scheitern.");
+  return problems ? 1 : 0;
 }
 
 /** Eingabepfad (relativ zum aktuellen Verzeichnis oder absolut) als Pfad relativ zur Wurzel. */

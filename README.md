@@ -460,10 +460,33 @@ docs-check.sh --run                              # alle Dokumente aus der Config
 docs-check.sh --run README.md                    # nur diese Datei
 ```
 
-Ausgabe: `!` ist ein Problem (Exit-Code 1), `?` von Hand prüfen, `~` ein
-Ökosystem, das das Skript nicht prüft (Go, Maven, Gradle u. a.). Ohne Befund
-erscheint nur die Zusammenfassung; `--verbose` zeigt zusätzlich Zahlenangaben
-und externe URLs zum Gegenprüfen.
+Die Ausgabe nennt zuerst jedes geprüfte Dokument mit seinem Ergebnis und die
+ausgenommenen Pfade, dann je Befund Kategorie, Zeilen, was nicht stimmt und
+was zu tun ist:
+
+```text
+Dokumentprüfung: 4 Dokumente laut .docs-check.conf.sh
+Ausgenommen: docs/superpowers, docs/README.template.md
+
+  ? README.md                                1 Stelle prüfen
+  ✓ docker/README.md                         in Ordnung
+  ✓ unraid/README.md                         in Ordnung
+  ✓ docs/stockinfo-integration-proposal.md   in Ordnung
+
+README.md
+  Prüfen     Zeilen 27, 66, 115, 136 · 4 farbige Hinweisboxen ([!IMPORTANT], [!NOTE], [!WARNING], [!TIP]); die Config erlaubt höchstens 2 (MAX_ALERTS).
+             → Nur die wirklich wichtigen behalten oder MAX_ALERTS in der Config anpassen.
+
+Ergebnis: 4 Dokumente geprüft · keine Probleme · 1 Stelle von Hand prüfen
+Stellen zum Prüfen lassen die Prüfung nicht scheitern.
+```
+
+| Kategorie | Bedeutung |
+|---|---|
+| **Problem** | Stimmt nicht mit dem Projekt überein; Exit-Code 1 |
+| **Prüfen** | Kann stimmen, ein Mensch entscheidet; Exit-Code bleibt 0 |
+| **Ungeprüft** | Befehle eines Ökosystems, das das Skript nicht prüft (Go, Maven, Gradle u. a.) |
+| **Info** | Nur mit `--verbose`: Zahlenangaben und externe URLs zum Gegenprüfen |
 
 Die Prüfung macht `src/deno/docs-check.ts` (Deno 2), nur lesend, nur `git`,
 ohne Netz. Projektfakten liest sie nur aus versionierten Dateien und nie aus
@@ -499,7 +522,13 @@ FORBIDDEN=(
     "PUID|interne Kennung, nicht in Nutzerdoku"
     "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
 )
+
+# Optional: höchstens so viele farbige Hinweisboxen je Dokument.
+MAX_ALERTS=2
 ```
+
+Grenzwerte setzt nur das Projekt: Ohne `MAX_ALERTS` prüft das Skript die Zahl
+der Hinweisboxen nicht.
 
 Ein `FORBIDDEN`-Eintrag ist entweder **Text** (Groß-/Kleinschreibung zählt)
 oder ein **regulärer Ausdruck** in JavaScript-Syntax als `/muster/flags`,

@@ -10,7 +10,7 @@
 #
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
-# sourcebares Bash-Snippet (DOCS, EXCLUDE, FORBIDDEN); der Name wird aus dem
+# sourcebares Bash-Snippet (DOCS, EXCLUDE, FORBIDDEN, MAX_ALERTS); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -90,6 +90,7 @@ readonly CONFIG_DISPLAY
 DOCS=()
 EXCLUDE=()
 FORBIDDEN=()
+MAX_ALERTS=""
 
 # Zeigt die Verwendungshinweise an.
 #
@@ -165,6 +166,10 @@ FORBIDDEN=(
     # "PUID|interne Kennung, nicht in Nutzerdoku"
     # "/\bP(U|G)ID\b|nobody:users/i|interne Kennungen, nicht in Nutzerdoku"
 )
+
+# Optional: hoechstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
+# Dokument. Leer oder nicht gesetzt: keine Grenze.
+MAX_ALERTS=""
 EOF
 }
 
@@ -189,18 +194,22 @@ loadConfig() {
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
-#   $2... - zu pruefende Dateien oder Ordner
+#   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
+#   $3... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
-    shift
+    local config_name="$2"
+    shift 2
 
     local args=(--root .) entry
+    [[ -n "${config_name}" ]] && args+=(--config-name "${config_name}")
     for entry in "${EXCLUDE[@]+"${EXCLUDE[@]}"}"; do
         args+=(--exclude "${entry}")
     done
     for entry in "${FORBIDDEN[@]+"${FORBIDDEN[@]}"}"; do
         args+=(--forbid "${entry}")
     done
+    [[ -n "${MAX_ALERTS}" ]] && args+=(--max-alerts "${MAX_ALERTS}")
     [[ "${verbose}" == "true" ]] && args+=(--verbose)
 
     deno run --quiet --allow-read --allow-run=git "${DOCS_CHECK_TS}" "${args[@]}" "$@"
@@ -290,4 +299,8 @@ if [[ ${#paths[@]} -eq 0 ]]; then
     paths=("${DOCS[@]}")
 fi
 
-runCheck "${verbose}" "${paths[@]}"
+# Die Kopfzeile nennt die Config nur, wenn sie gelesen wurde.
+loaded_config=""
+[[ ${_RC} -ne 1 ]] && loaded_config="${config_file#./}"
+
+runCheck "${verbose}" "${loaded_config}" "${paths[@]}"
