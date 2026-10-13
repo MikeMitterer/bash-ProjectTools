@@ -219,6 +219,35 @@ testMaxAlertsAusConfig() {
     assertEquals "0" "${rc}" "MAX_ALERTS: zu pruefen, kein Problem"
 }
 
+# LINKS_ONLY, KNOWN_VARIABLES und SCREENSHOTS kommen aus der Config an;
+# Nur-Link-Dokumente und Screenshots nur beim Lauf ueber das ganze Projekt.
+# shellcheck disable=SC2016  # Backticks sind Markdown, keine Ersetzung
+testNeueConfigEintraege() {
+    printf '# Regeln\n\nIntern 99:100, `LIB_VAR`. Siehe [alt](docs/old.md).\n' > "${fixture}/AGENTS.md"
+    printf '# Lib\n\n`LIB_VAR` setzen.\n' > "${fixture}/lib.md"
+    mkdir -p "${fixture}/shots"
+    printf 'png' > "${fixture}/shots/a.png"
+    touch -t 202001010000 "${fixture}/shots/a.png"
+    cat > "${fixture}/new.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("lib.md")
+LINKS_ONLY=("AGENTS.md")
+FORBIDDEN=("99:100|interne IDs")
+KNOWN_VARIABLES=("LIB_VAR|aus einer Bibliothek")
+SCREENSHOTS=("shots")
+MAX_SCREENSHOT_AGE_DAYS=60
+EOF
+    runScript --config new.conf.sh --run
+    assertEquals "1" "${rc}" "LINKS_ONLY: toter Link ergibt Exit-Code 1"
+    assertOutputContains "AGENTS.md (nur Links)" "LINKS_ONLY: Pruefart genannt"
+    assertOutputLacks "interne IDs" "LINKS_ONLY: keine verbotenen Begriffe"
+    assertOutputLacks "LIB_VAR" "KNOWN_VARIABLES: Variable gilt als bekannt"
+    assertOutputContains "älter als 60 Tage" "SCREENSHOTS: altes Bild gemeldet"
+    runScript --config new.conf.sh --run lib.md
+    assertEquals "0" "${rc}" "--run mit Pfad: ohne Nur-Link-Dokumente und Screenshots"
+    assertOutputLacks "Screenshots" "--run mit Pfad: keine Screenshots"
+}
+
 testUngueltigerAusdruckBrichtAb() {
     printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nFORBIDDEN=("/[/")\n' > "${fixture}/broken.conf.sh"
     runScript --config broken.conf.sh --run
@@ -248,6 +277,7 @@ runAll() {
     testMaxAlertsAusConfig
     testRequiredAusConfig
     testMusterInDocsUndExclude
+    testNeueConfigEintraege
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then

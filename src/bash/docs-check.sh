@@ -10,8 +10,8 @@
 #
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
-# sourcebares Bash-Snippet (DOCS, EXCLUDE, FORBIDDEN, MAX_ALERTS, REQUIRED); der Name
-# wird aus dem
+# sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
+# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -89,10 +89,14 @@ readonly CONFIG_DISPLAY
 
 # Defaults — von der gesourcten Config ueberschrieben
 DOCS=()
+LINKS_ONLY=()
 EXCLUDE=()
 FORBIDDEN=()
+KNOWN_VARIABLES=()
 MAX_ALERTS=""
 REQUIRED=()
+SCREENSHOTS=()
+MAX_SCREENSHOT_AGE_DAYS=""
 
 # Zeigt die Verwendungshinweise an.
 #
@@ -156,7 +160,21 @@ EOF
     cat <<EOF
 )
 
-# Aus DOCS ausgenommen: Datei, Ordner samt Inhalt oder Muster (ein Muster
+# Interne Doku, die nur auf tote Links, fehlende Bilder und Anker geprüft
+# wird, nicht auf verbotene Begriffe, Befehle oder Variablen. Gedacht für
+# Projektregeln und Tickets, die interne Angaben nennen dürfen.
+LINKS_ONLY=(
+EOF
+    local internal
+    for internal in AGENTS.md CLAUDE.md; do
+        if git ls-files --error-unmatch -- "${internal}" >/dev/null 2>&1; then
+            printf '    "%s"\n' "${internal}"
+        fi
+    done
+    cat <<EOF
+)
+
+# Aus DOCS und LINKS_ONLY ausgenommen: Datei, Ordner samt Inhalt oder Muster (ein Muster
 # darf auch einen Ordner treffen, z. B. "docs/drafts-*"). Gedacht für
 # datierte Entwürfe oder Vorlagen, die verbotene Begriffe bewusst nennen.
 EXCLUDE=(
@@ -199,6 +217,13 @@ FORBIDDEN=(
     # "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
 )
 
+# Variablen, die die Doku nennen darf, obwohl sie in keiner versionierten
+# Datei vorkommen, z. B. aus einer eingebundenen, nicht versionierten
+# Bibliothek. Je Eintrag optional mit "|<grund>".
+KNOWN_VARIABLES=(
+    # "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
+)
+
 # Optional: höchstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
 # Dokument. Leer oder nicht gesetzt: keine Grenze.
 MAX_ALERTS=""
@@ -217,15 +242,30 @@ EOF
             printf '    "%s"\n' "${required}"
         fi
     done
-    echo ')'
+    cat <<EOF
+)
+
+# Optional: Screenshots, deren Alter geprüft wird (Datei, Ordner oder Muster;
+# ohne von git ignorierte Bilder). Maßgeblich ist das Änderungsdatum der
+# Datei. Ist ein Bild älter als MAX_SCREENSHOT_AGE_DAYS Tage, erscheint ein
+# Hinweis; die Prüfung scheitert daran nicht. Beide Einträge gehören zusammen.
+SCREENSHOTS=(
+EOF
+    if [[ -d docs/images ]]; then
+        printf '    # "docs/images"\n'
+    fi
+    cat <<EOF
+)
+MAX_SCREENSHOT_AGE_DAYS=""
+EOF
 }
 
 # Laedt die Config, falls vorhanden.
 #
 # Returns:
-#   0 - Config geladen, DOCS oder REQUIRED gesetzt
+#   0 - Config geladen, DOCS, LINKS_ONLY oder REQUIRED gesetzt
 #   1 - Config fehlt
-#   2 - Config ohne DOCS- und REQUIRED-Eintraege
+#   2 - Config ohne DOCS-, LINKS_ONLY- und REQUIRED-Eintraege
 loadConfig() {
     local config_file="$1"
 
@@ -234,16 +274,17 @@ loadConfig() {
     # shellcheck source=/dev/null
     . "${config_file}"
 
-    [[ ${#DOCS[@]} -gt 0 || ${#REQUIRED[@]} -gt 0 ]] || return 2
+    [[ ${#DOCS[@]} -gt 0 || ${#LINKS_ONLY[@]} -gt 0 || ${#REQUIRED[@]} -gt 0 ]] || return 2
 }
 
-# Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN und MAX_ALERTS aus der
-# Config, auf Wunsch auch mit REQUIRED.
+# Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
+# MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
+# REQUIRED, LINKS_ONLY und SCREENSHOTS.
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
 #   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
-#   $3    - "true", um die Pflichtdateien aus REQUIRED zu pruefen
+#   $3    - "true", um REQUIRED, LINKS_ONLY und SCREENSHOTS zu pruefen
 #   $4... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
@@ -259,11 +300,23 @@ runCheck() {
     for entry in "${FORBIDDEN[@]+"${FORBIDDEN[@]}"}"; do
         args+=(--forbid "${entry}")
     done
+    for entry in "${KNOWN_VARIABLES[@]+"${KNOWN_VARIABLES[@]}"}"; do
+        args+=(--known-variable "${entry}")
+    done
     [[ -n "${MAX_ALERTS}" ]] && args+=(--max-alerts "${MAX_ALERTS}")
     if [[ "${with_required}" == "true" ]]; then
         for entry in "${REQUIRED[@]+"${REQUIRED[@]}"}"; do
             args+=(--require "${entry}")
         done
+        for entry in "${LINKS_ONLY[@]+"${LINKS_ONLY[@]}"}"; do
+            args+=(--links-only "${entry}")
+        done
+        for entry in "${SCREENSHOTS[@]+"${SCREENSHOTS[@]}"}"; do
+            args+=(--screenshot "${entry}")
+        done
+        if [[ -n "${MAX_SCREENSHOT_AGE_DAYS}" ]]; then
+            args+=(--max-screenshot-age "${MAX_SCREENSHOT_AGE_DAYS}")
+        fi
     fi
     [[ "${verbose}" == "true" ]] && args+=(--verbose)
 
@@ -338,8 +391,8 @@ _RC=0
 loadConfig "${config_file}" || _RC=$?
 
 # Mit Pfaden genuegt eine fehlende Config: Dann gibt es nur keine verbotenen
-# Begriffe und Ausnahmen. Pflichtdateien gehoeren zum ganzen Projekt und werden
-# nur ohne Pfade geprueft.
+# Begriffe und Ausnahmen. Pflichtdateien, Nur-Link-Dokumente und Screenshots
+# gehoeren zum ganzen Projekt und werden nur ohne Pfade geprueft.
 with_required="false"
 if [[ ${#paths[@]} -eq 0 ]]; then
     if [[ ${_RC} -ne 0 ]]; then
@@ -347,7 +400,7 @@ if [[ ${#paths[@]} -eq 0 ]]; then
             if [[ ${_RC} -eq 1 ]]; then
                 echo -e "${RED}Fehler:${NC} Config '${config_file}' nicht gefunden."
             else
-                echo -e "${RED}Fehler:${NC} Config '${config_file}' ohne DOCS- und REQUIRED-Eintraege."
+                echo -e "${RED}Fehler:${NC} Config '${config_file}' ohne DOCS-, LINKS_ONLY- und REQUIRED-Eintraege."
             fi
             echo -e "Vorlage anlegen: ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
         } >&2

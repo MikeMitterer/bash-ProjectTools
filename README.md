@@ -109,7 +109,7 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
 | `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
 | `src/bash/dev-ports.sh` | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
-| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe | `.docs-check.conf.sh` |
+| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe, Alter der Screenshots | `.docs-check.conf.sh` |
 
 Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
 `npm publish` überall dort, wo veröffentlicht wird:
@@ -452,6 +452,10 @@ Je Markdown-Datei:
 - **Variablen und Repo-Pfade** in Code-Formatierung.
 - **Verbotene Begriffe** aus der Config und vergessene Platzhalter.
 
+Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
+tote Links und Anker (`LINKS_ONLY`) und das **Alter der Screenshots**
+(`SCREENSHOTS`).
+
 Aufruf im Projekt-Root:
 
 ```bash
@@ -513,7 +517,13 @@ DOCS=(
     "**/fixtures/**/README.md"
 )
 
-# Aus DOCS ausgenommen: Datei, Ordner samt Inhalt oder Muster.
+# Nur auf Links, Bilder und Anker geprüft (interne Doku).
+LINKS_ONLY=(
+    "AGENTS.md"
+    "_tickets/README.md"
+)
+
+# Aus DOCS und LINKS_ONLY ausgenommen: Datei, Ordner samt Inhalt oder Muster.
 EXCLUDE=(
     "docs/superpowers"
     "docs/**/draft-*.md"
@@ -528,6 +538,11 @@ FORBIDDEN=(
     "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
 )
 
+# Variablen, die keine versionierte Datei nennt, je optional mit "|<grund>".
+KNOWN_VARIABLES=(
+    "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
+)
+
 # Optional: höchstens so viele farbige Hinweisboxen je Dokument.
 MAX_ALERTS=2
 
@@ -538,9 +553,15 @@ REQUIRED=(
     "docs/user-guide.md|im README verlinkt"
     "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
 )
+
+# Optional: Screenshots, deren Alter geprüft wird, und die Grenze in Tagen.
+SCREENSHOTS=(
+    "docs/images"
+)
+MAX_SCREENSHOT_AGE_DAYS=60
 ```
 
-**Pfade und Muster (`DOCS`, `EXCLUDE`, `REQUIRED`):** Pfade gelten ab dem
+**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`):** Pfade gelten ab dem
 Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
 `.gitignore`:
 
@@ -573,8 +594,30 @@ Die Meldung nennt Zeilen, gefundenen Text und Grund. In Bash-Strings mit
 doppelten Anführungszeichen bleiben `\b` und `\d` erhalten; `$` und Backticks
 brauchen einen Backslash davor.
 
-**Grenzwerte (`MAX_ALERTS`)** setzt nur das Projekt: Ohne Eintrag prüft das
-Skript die Zahl der Hinweisboxen nicht.
+**Nur Links (`LINKS_ONLY`):** für interne Doku, die verbotene Begriffe,
+Make-Targets oder Platzhalter nennen darf, etwa Projektregeln und Tickets.
+Geprüft werden nur Links und Bilder auf Dateien im Repo und Anker; ein toter
+Link ist ein Problem. Ein veralteter Verweis fällt so nur auf, wenn er als
+Link geschrieben ist (`[Entwicklerdoku](docs/development.md)` statt „siehe
+README, Abschnitt Setup“). Steht eine Datei auch in `DOCS`, gilt die
+vollständige Prüfung.
+
+**Bekannte Variablen (`KNOWN_VARIABLES`):** Eine Variable in
+Code-Formatierung, die in keiner versionierten Datei vorkommt, ergibt einen
+Hinweis. Stammt sie aus einer eingebundenen, nicht versionierten Bibliothek
+(etwa unter `.libs/`) oder ist sie ein allgemeiner Standard wie `NO_COLOR`,
+gehört sie hierher, damit derselbe Hinweis nicht bei jedem Lauf wiederkommt.
+
+**Grenzwerte (`MAX_ALERTS`, `MAX_SCREENSHOT_AGE_DAYS`)** setzt nur das
+Projekt: Ohne Eintrag prüft das Skript die Zahl der Hinweisboxen und das
+Alter der Screenshots nicht.
+
+**Screenshots (`SCREENSHOTS`):** Bilder (`.png`, `.jpg`, `.gif`, `.webp`,
+`.svg`), die git nicht ignoriert. Maßgeblich ist das Änderungsdatum der Datei
+auf der Platte. Ist ein Bild älter als `MAX_SCREENSHOT_AGE_DAYS` Tage, nennt
+die Ausgabe es mit Datum als Hinweis; ein Eintrag ohne Treffer ist ein
+Problem. Beide Einträge gehören zusammen, einer allein bricht mit Exit-Code 2
+ab.
 
 **Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
 an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit
@@ -582,8 +625,9 @@ an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit
 Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
 Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
 zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
-Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien prüft `--run`
-nur ohne Pfadangabe, also beim Lauf über die ganze Config.
+Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
+`LINKS_ONLY` und Screenshots prüft `--run` nur ohne Pfadangabe, also beim
+Lauf über die ganze Config.
 
 Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
 sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,

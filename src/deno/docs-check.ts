@@ -22,6 +22,13 @@
  *   --require EINTRAG      Pflichtdatei: NAME (irgendwo), PFAD oder MUSTER (* und **)
  *                          ab Root, optional |GRUND; zählt nur versioniert,
  *                          nicht leer und als .md mit Überschrift
+ *   --links-only PFAD      Datei, Ordner oder Muster nur auf Links, Bilder und
+ *                          Anker prüfen (interne Doku wie AGENTS.md)
+ *   --known-variable NAME  Variable gilt als bekannt, optional NAME|GRUND
+ *                          (z. B. aus einer nicht versionierten Bibliothek)
+ *   --screenshot PFAD      Bild, Ordner oder Muster, dessen Alter geprüft wird
+ *   --max-screenshot-age N Hinweis, wenn ein Screenshot zuletzt vor mehr als
+ *                          N Tagen geändert wurde (nur mit --screenshot)
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
  *
@@ -472,14 +479,16 @@ function collectFacts(project: Project): Facts {
 function inboundAnchors(project: Project, target: string): Map<string, Set<string>> {
   const anchors = new Map<string, Set<string>>();
   const name = baseName(target).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`([\\w./-]*${name})#([\\w-]+)`, "g");
+  // Anker mit Umlauten, roh (#prüfen) oder kodiert (#pr%C3%BCfen).
+  const pattern = new RegExp(`([\\w./-]*${name})#([\\p{L}\\p{N}_%-]+)`, "gu");
   for (const path of project.files) {
     if (!TEXT_SUFFIXES.has(suffix(path)) || path === target) continue;
     const directory = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
     for (const match of readText(`${project.root}/${path}`).matchAll(pattern)) {
       if (normalize(directory ? `${directory}/${match[1]}` : match[1]) !== target) continue;
-      if (!anchors.has(match[2])) anchors.set(match[2], new Set());
-      anchors.get(match[2])!.add(path);
+      const anchor = safeDecode(match[2]);
+      if (!anchors.has(anchor)) anchors.set(anchor, new Set());
+      anchors.get(anchor)!.add(path);
     }
   }
   return anchors;
@@ -767,7 +776,22 @@ export interface Rules {
   forbidden: Forbidden[];
   /** Höchstzahl farbiger Hinweisboxen (`> [!WARNING]` usw.) je Dokument. */
   maxAlerts?: number;
+  /** Variablen, die als bekannt gelten, obwohl keine versionierte Datei sie nennt. */
+  knownVariables?: string[];
+  /** Nur Links, Bilder und Anker prüfen (interne Doku). */
+  linksOnly?: boolean;
   verbose: boolean;
+}
+
+/** Gleiche Befunde an mehreren Stellen zu einem Befund mit allen Zeilen zusammenfassen. */
+function mergeFindings(findings: Finding[]): Finding[] {
+  const merged = new Map<string, Finding>();
+  for (const finding of findings) {
+    const known = merged.get(`${finding.level}:${finding.message}`);
+    if (known) known.lines.push(...finding.lines.filter((line) => !known.lines.includes(line)));
+    else merged.set(`${finding.level}:${finding.message}`, finding);
+  }
+  return [...merged.values()].sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0));
 }
 
 /**
@@ -806,7 +830,12 @@ export function checkDocument(
     for (const match of content.matchAll(LINK)) {
       const link = match[1] ?? match[2] ?? match[3] ?? match[4];
       if (/^(https?:|mailto:|data:)/.test(link)) continue;
-      const [pathPart, anchor] = link.split("#");
+      const [pathPart, rawAnchor] = link.split("#");
+      const anchor = rawAnchor && safeDecode(rawAnchor);
+      // Absolute Pfade zeigen aus dem Repo heraus und gelten, wie sie dastehen.
+      const linked = pathPart.startsWith("/")
+        ? safeDecode(pathPart)
+        : `${project.root}/${join(home, safeDecode(pathPart))}`;
       if (!pathPart) {
         if (anchor && !slugs.has(anchor)) {
           add({
@@ -816,7 +845,7 @@ export function checkDocument(
             advice: "Link an die Überschrift anpassen oder die Überschrift wiederherstellen.",
           });
         }
-      } else if (!exists(`${project.root}/${join(home, safeDecode(pathPart))}`)) {
+      } else if (!exists(linked)) {
         add({
           lines: [index + 1],
           level: "problem",
@@ -842,9 +871,17 @@ export function checkDocument(
     }
   }
 
+  if (rules.linksOnly) return mergeFindings(findings);
+
+  // Variablen aus der Config gelten wie solche aus versionierten Dateien.
+  const facts = collectFacts(project);
+  for (const name of rules.knownVariables ?? []) {
+    if (!facts.variables.has(name)) facts.variables.set(name, new Set());
+    facts.variables.get(name)!.add("Config");
+  }
   // Ein README eines Unterprojekts beschreibt sein Verzeichnis, andere
   // Dokumente (z. B. docs/development.md) beschreiben das Projekt von der Wurzel aus.
-  checkClaims(text, project, collectFacts(project), isReadme ? home : ".", add);
+  checkClaims(text, project, facts, isReadme ? home : ".", add);
 
   // Grenze für Hinweisboxen nur, wenn die Projekt-Config eine setzt.
   if (rules.maxAlerts !== undefined) {
@@ -927,14 +964,7 @@ export function checkDocument(
     }
   }
 
-  // Gleiche Befunde an mehreren Stellen zu einem Befund mit allen Zeilen zusammenfassen.
-  const merged = new Map<string, Finding>();
-  for (const finding of findings) {
-    const known = merged.get(`${finding.level}:${finding.message}`);
-    if (known) known.lines.push(...finding.lines.filter((line) => !known.lines.includes(line)));
-    else merged.set(`${finding.level}:${finding.message}`, finding);
-  }
-  return [...merged.values()].sort((a, b) => (a.lines[0] ?? 0) - (b.lines[0] ?? 0));
+  return mergeFindings(findings);
 }
 
 /**
@@ -1120,6 +1150,52 @@ export function checkRequired(project: Project, required: Required[]): RequiredR
   });
 }
 
+const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Alter eines Screenshots nach dem Änderungsdatum der Datei. */
+export interface ScreenshotResult {
+  path: string;
+  changed: Date;
+  ageDays: number;
+  tooOld: boolean;
+}
+
+/**
+ * Bilder, die die Einträge treffen (Datei, Ordner samt Unterordnern oder
+ * Muster), mit ihrem Alter. Gesucht wird unter den Dateien, die git nicht
+ * ignoriert, also auch unter neu aufgenommenen. Einträge ohne Treffer stehen
+ * in `missing`.
+ */
+export function checkScreenshots(
+  project: Project,
+  entries: string[],
+  maxAgeDays: number,
+  now = Date.now(),
+): { results: ScreenshotResult[]; missing: string[] } {
+  const listed = git(project.root, "ls-files", "--cached", "--others", "--exclude-standard");
+  const images = [...new Set(listed ? listed.split("\n") : project.files)]
+    .filter((path) => IMAGE_SUFFIXES.has(suffix(path).toLowerCase()) && !isSensitive(path))
+    .filter((path) => exists(`${project.root}/${path}`));
+  const paths = new Set<string>();
+  const missing: string[] = [];
+  for (const entry of entries) {
+    const wanted = normalize(entry);
+    const matcher = isGlob(wanted) ? globToRegExp(wanted) : undefined;
+    const found = images.filter((path) =>
+      matcher ? matcher.test(path) : path === wanted || path.startsWith(`${wanted}/`)
+    );
+    if (!found.length) missing.push(entry);
+    for (const path of found) paths.add(path);
+  }
+  const results = [...paths].sort().map((path) => {
+    const changed = Deno.statSync(`${project.root}/${path}`).mtime ?? new Date(now);
+    const ageDays = Math.max(0, Math.floor((now - changed.getTime()) / DAY_MS));
+    return { path, changed, ageDays, tooOld: ageDays > maxAgeDays };
+  });
+  return { results, missing };
+}
+
 // ------------------------------------------------------------ Kommandozeile
 
 interface Options {
@@ -1128,6 +1204,10 @@ interface Options {
   required: Required[];
   maxAlerts?: number;
   excludes: string[];
+  knownVariables: string[];
+  linksOnlyInputs: string[];
+  screenshots: string[];
+  maxScreenshotAge?: number;
   placement?: string;
   verbose: boolean;
   configName?: string;
@@ -1140,6 +1220,9 @@ function parseArgs(args: string[]): Options | string {
     forbidden: [],
     required: [],
     excludes: [],
+    knownVariables: [],
+    linksOnlyInputs: [],
+    screenshots: [],
     verbose: false,
     inputs: [],
   };
@@ -1170,14 +1253,37 @@ function parseArgs(args: string[]): Options | string {
           return "--max-alerts braucht eine ganze Zahl ab 0";
         }
         options.maxAlerts = limit;
+      } else if (arg === "--known-variable") {
+        const name = value().split("|")[0].trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+          return `--known-variable braucht einen Variablennamen, nicht „${name}“`;
+        }
+        options.knownVariables.push(name);
+      } else if (arg === "--links-only") options.linksOnlyInputs.push(value());
+      else if (arg === "--screenshot") options.screenshots.push(value());
+      else if (arg === "--max-screenshot-age") {
+        const days = Number(value());
+        if (!Number.isInteger(days) || days < 1) {
+          return "--max-screenshot-age braucht eine ganze Zahl von Tagen ab 1";
+        }
+        options.maxScreenshotAge = days;
       } else if (arg.startsWith("--")) return `unbekannte Option: ${arg}`;
       else options.inputs.push(arg);
     } catch (error) {
       return (error as Error).message;
     }
   }
-  if (!options.inputs.length && !options.required.length) {
-    return "keine Datei, kein Ordner und keine Pflichtdatei angegeben";
+  if (options.screenshots.length && options.maxScreenshotAge === undefined) {
+    return "--screenshot braucht --max-screenshot-age (Config: MAX_SCREENSHOT_AGE_DAYS)";
+  }
+  if (!options.screenshots.length && options.maxScreenshotAge !== undefined) {
+    return "--max-screenshot-age braucht mindestens ein --screenshot (Config: SCREENSHOTS)";
+  }
+  if (
+    !options.inputs.length && !options.linksOnlyInputs.length && !options.required.length &&
+    !options.screenshots.length
+  ) {
+    return "keine Datei, kein Ordner, keine Pflichtdatei und kein Screenshot angegeben";
   }
   if (options.placement && options.inputs.length !== 1) return "--as gilt nur für genau eine Datei";
   return options;
@@ -1218,36 +1324,46 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
   const paint = painter();
   const project = loadProject(options.root);
   // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
-  const targets: Array<[string, string]> = [];
+  // Je Ziel: gelesener Pfad, Ort im Repo und ob nur Links geprüft werden.
+  const targets: Array<[string, string, boolean]> = [];
   let missing: Array<{ input: string; reason: string }> = [];
   if (options.placement) {
-    targets.push([options.inputs[0], options.placement]);
+    targets.push([options.inputs[0], options.placement, false]);
   } else {
-    const expanded = expandDocuments(
-      project.root,
-      options.inputs.map((input) => relativeToRoot(project.root, input)),
-      options.excludes,
-    );
-    missing = expanded.missing;
-    for (const document of expanded.documents) {
-      targets.push([`${project.root}/${document}`, document]);
+    const expand = (inputs: string[]) =>
+      expandDocuments(
+        project.root,
+        inputs.map((input) => relativeToRoot(project.root, input)),
+        options.excludes,
+      );
+    const full = expand(options.inputs);
+    const linksOnly = expand(options.linksOnlyInputs);
+    missing = [...full.missing, ...linksOnly.missing];
+    for (const document of full.documents) {
+      targets.push([`${project.root}/${document}`, document, false]);
+    }
+    // Steht eine Datei in beiden Listen, gilt die vollständige Prüfung.
+    for (const document of linksOnly.documents.filter((path) => !full.documents.includes(path))) {
+      targets.push([`${project.root}/${document}`, document, true]);
     }
   }
-  const results = targets.map(([path, placement]) => ({
-    name: options.placement ? `${normalize(placement)} (Entwurf ${path})` : normalize(placement),
-    findings: checkDocument(path, project, placement, options),
+  const results = targets.map(([path, placement, linksOnly]) => ({
+    name: options.placement
+      ? `${normalize(placement)} (Entwurf ${path})`
+      : `${normalize(placement)}${linksOnly ? " (nur Links)" : ""}`,
+    findings: checkDocument(path, project, placement, { ...options, linksOnly }),
   }));
 
   // Übersicht: was geprüft wurde, je Dokument mit Ergebnis.
   const source = options.configName ? ` laut ${options.configName}` : "";
-  const checksDocuments = options.inputs.length > 0;
+  const checksDocuments = options.inputs.length > 0 || options.linksOnlyInputs.length > 0;
   if (checksDocuments) {
     console.log(
       paint("1", `Dokumentprüfung: ${count(results.length, "Dokument", "Dokumente")}${source}`),
@@ -1305,6 +1421,55 @@ function main(args: string[]): number {
     }
   }
 
+  // Screenshots: je Bild Commit-Datum und Alter; zu alte als Hinweis.
+  const maxAge = options.maxScreenshotAge ?? 0;
+  const screenshots = options.screenshots.length
+    ? checkScreenshots(project, options.screenshots, maxAge)
+    : { results: [], missing: [] };
+  if (options.screenshots.length) {
+    console.log(
+      `${checksDocuments || requiredResults.length ? "\n" : ""}${
+        paint(
+          "1",
+          `Screenshots: ${screenshots.results.length}${source}, höchstens ${
+            count(maxAge, "Tag", "Tage")
+          } alt`,
+        )
+      }\n`,
+    );
+    const shotWidth = Math.max(
+      0,
+      ...screenshots.results.map((result) => result.path.length),
+      ...screenshots.missing.map((entry) => entry.length),
+    );
+    for (const entry of screenshots.missing) {
+      console.log(
+        `  ${paint("31", "✗")} ${entry.padEnd(shotWidth)}   ${paint("31", "trifft kein Bild")}`,
+      );
+      console.log(
+        `${" ".repeat(shotWidth + 7)}→ Eintrag in SCREENSHOTS korrigieren oder entfernen.`,
+      );
+    }
+    for (const { path, changed, ageDays, tooOld } of screenshots.results) {
+      const state = `geändert am ${changed.toISOString().slice(0, 10)}, vor ${
+        count(ageDays, "Tag", "Tagen")
+      }`;
+      const mark = tooOld ? paint("33", "?") : paint("32", "✓");
+      console.log(
+        `  ${mark} ${path.padEnd(shotWidth)}   ${state}${
+          tooOld ? paint("33", ` · älter als ${count(maxAge, "Tag", "Tage")}`) : ""
+        }`,
+      );
+      if (tooOld) {
+        console.log(
+          `${
+            " ".repeat(shotWidth + 7)
+          }→ Prüfen, ob das Bild die aktuelle Oberfläche zeigt; sonst neu aufnehmen.`,
+        );
+      }
+    }
+  }
+
   // Einzelheiten je Dokument mit Befunden.
   const colors: Record<Finding["level"], string> = {
     problem: "31",
@@ -1335,16 +1500,23 @@ function main(args: string[]): number {
     ...(requiredResults.length
       ? [count(requiredResults.length, "Pflichtdatei", "Pflichtdateien")]
       : []),
+    ...(options.screenshots.length
+      ? [count(screenshots.results.length, "Screenshot", "Screenshots")]
+      : []),
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
-    failedRequired;
+    failedRequired + screenshots.missing.length;
   const open =
-    all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length;
+    all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
+    screenshots.results.filter((result) => result.tooOld).length;
   const verdict = problems
     ? paint("31", count(problems, "Problem", "Probleme"))
     : paint("32", "keine Probleme");
+  const checkedText = checked.length > 1
+    ? `${checked.slice(0, -1).join(", ")} und ${checked[checked.length - 1]}`
+    : checked[0];
   console.log(
-    `\nErgebnis: ${checked.join(" und ")} geprüft · ${verdict}` +
+    `\nErgebnis: ${checkedText} geprüft · ${verdict}` +
       (open ? ` · ${count(open, "Hinweis", "Hinweise")} zum Ansehen` : ""),
   );
   if (open && !problems) {
