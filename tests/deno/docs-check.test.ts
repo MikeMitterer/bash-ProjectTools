@@ -84,6 +84,14 @@ function fixture(): string {
   write(root, "config/secrets.yaml", "SECRETS_ONLY_VAR: CANARY_SECRETS\n");
   write(root, "deploy/server.key", "KEY_ONLY_VAR CANARY_KEY\n");
   write(root, ".npmrc", "//registry.npmjs.org/:_authToken=CANARY_NPMRC\n");
+  // Eingehende Anker mit Umlauten, roh und kodiert; einer zeigt ins Leere.
+  // Versioniert, denn eingehende Anker stammen nur aus versionierten Dateien.
+  write(
+    root,
+    "notes/links.md",
+    "[a](../AGENTS.md#bauen-und-prüfen) [b](../AGENTS.md#bauen-und-pr%C3%BCfen) " +
+      "[c](../AGENTS.md#größe-fehlt)\n",
+  );
   const git = (...args: string[]) =>
     new Deno.Command("git", { args: ["-C", root, ...args], stdout: "null", stderr: "null" })
       .outputSync();
@@ -100,6 +108,20 @@ function fixture(): string {
   // Datierte Entwürfe dürfen interne Angaben enthalten und werden ausgeschlossen.
   write(root, "docs/drafts/plan.md", "# Plan\n\nRuns as PUID 99.\n");
   write(root, "docs/user.md", "# User\n\nSet PUID and PGID to change the owner.\n");
+  // Interne Regeln: nur Links prüfen, verbotene Begriffe und Platzhalter sind erlaubt.
+  write(
+    root,
+    "AGENTS.md",
+    "# Regeln\n\nPUID bleibt intern. TODO später.\n\n`make nope` und `INTERNAL_VAR`.\n\n" +
+      "Siehe [Setup](README.md#install), [alt](docs/old.md) und [weg](#nirgends).\n\n" +
+      `Absolut: [da](${root}/LICENSE), [fort](/nirgends/plan.md).\n\n## Bauen und prüfen\n`,
+  );
+  // Screenshots: eines frisch, eines vor 100 Tagen geändert, eines von git ignoriert.
+  write(root, "shots/fresh.png", "png");
+  write(root, "shots/old.png", "png");
+  write(root, "gen/ignored.png", "png");
+  const hundredDaysAgo = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);
+  Deno.utimeSync(`${root}/shots/old.png`, hundredDaysAgo, hundredDaysAgo);
   // Drei Hinweisboxen in einem README: Hinweis mit Zeilen und Box-Art.
   write(
     root,
@@ -185,6 +207,27 @@ const pattern = run(
   `${root}/docs/user.md`,
 );
 const invalid = run("--root", root, "--forbid", "/[/", `${root}/README.md`);
+const linksOnly = run("--root", root, "--forbid", "PUID", "--links-only", "AGENTS.md");
+// README.md vollständig und als Nur-Link-Dokument: Die vollständige Prüfung gilt.
+const both = run("--root", root, "--links-only", "README.md", `${root}/README.md`);
+const known = run(
+  "--root",
+  root,
+  "--known-variable",
+  "UNTRACKED_ONLY_VAR|aus einer Bibliothek",
+  `${root}/README.md`,
+);
+const shots = run(
+  "--root",
+  root,
+  "--screenshot",
+  "shots",
+  "--screenshot",
+  "gen/*.png",
+  "--max-screenshot-age",
+  "60",
+);
+const shotsWithoutLimit = run("--root", root, "--screenshot", "shots");
 const alerts = run("--root", root, "--max-alerts", "2", `${root}/ui/README.md`);
 const alertsUnlimited = run("--root", root, `${root}/ui/README.md`);
 // Muster in DOCS und EXCLUDE; req/a/* schließt req/a/b/deep.md über seinen Ordner aus.
@@ -414,6 +457,55 @@ Deno.test("DOCS und EXCLUDE mit Mustern; ignorierte Dateien zählen nicht", () =
   );
   assert(lineFor(globs.output, "nix/*.md").includes("Muster trifft keine"), "Muster ohne Treffer");
   assert(globs.code === 1, "Muster ohne Treffer ist ein Problem");
+});
+
+Deno.test("Nur-Link-Dokumente: tote Links und Anker, sonst nichts", () => {
+  assert(
+    lineFor(linksOnly.output, "AGENTS.md").includes("(nur Links)"),
+    `Übersicht nennt die Prüfart:\n${linksOnly.output}`,
+  );
+  assert(lineFor(linksOnly.output, "docs/old.md").includes("Problem"), "toter Link");
+  assert(lineFor(linksOnly.output, "#nirgends").includes("Problem"), "fehlender Anker");
+  for (const ignored of ["PUID", "Platzhalter", "make nope", "INTERNAL_VAR"]) {
+    assert(!lineFor(linksOnly.output, ignored).includes("·"), `${ignored} wird nicht geprüft`);
+  }
+  assert(linksOnly.code === 1, "tote Links lassen die Prüfung scheitern");
+  assert(!linksOnly.output.includes("#bauen-und-pr"), `Umlaut-Anker erkannt:\n${linksOnly.output}`);
+  assert(
+    lineFor(linksOnly.output, "#größe-fehlt").includes("notes/links.md"),
+    "fehlender Umlaut-Anker vollständig genannt",
+  );
+  assert(!linksOnly.output.includes("LICENSE"), "vorhandener absoluter Pfad ist in Ordnung");
+  assert(lineFor(linksOnly.output, "/nirgends/plan.md").includes("Problem"), "absolut und fehlt");
+  assert(
+    !lineFor(both.output, "README.md").includes("(nur Links)") &&
+      lineFor(both.output, "make deploy").includes("Hinweis"),
+    "doppelt genannt: vollständige Prüfung",
+  );
+});
+
+Deno.test("Bekannte Variablen aus der Config gelten als vorhanden", () => {
+  assert(!known.output.includes("`UNTRACKED_ONLY_VAR`"), known.output);
+  assert(lineFor(known.output, "ENV_ONLY_VAR").includes("Hinweis"), "andere bleiben unbekannt");
+  const bad = run("--root", root, "--known-variable", "kein name", `${root}/README.md`);
+  assert(bad.code === 2 && bad.output.includes("Variablennamen"), bad.output);
+});
+
+Deno.test("Screenshots: Alter nach Änderungsdatum, zu alte als Hinweis", () => {
+  assert(shots.output.includes("Screenshots: 2, höchstens 60 Tage alt"), shots.output);
+  assert(/✓ shots\/fresh\.png\s+geändert am .*, vor 0 Tagen/.test(shots.output), shots.output);
+  const old = lineFor(shots.output, "shots/old.png");
+  assert(
+    old.includes("vor 100 Tagen") && old.includes("älter als 60 Tage"),
+    `altes Bild:\n${shots.output}`,
+  );
+  assert(shots.output.includes("neu aufnehmen"), "sagt, was zu tun ist");
+  assert(
+    lineFor(shots.output, "gen/*.png").includes("trifft kein Bild"),
+    "ignorierte zählen nicht",
+  );
+  assert(shots.output.includes("2 Screenshots geprüft · 1 Problem · 1 Hinweis"), shots.output);
+  assert(shotsWithoutLimit.code === 2, "ohne Grenze kein Lauf: Grenzwert nur aus der Config");
 });
 
 Deno.test("Aufräumen", () => {
