@@ -236,9 +236,15 @@ MAX_ALERTS=""
 #   "./docs/**/*.md"      Muster: mindestens ein Treffer
 REQUIRED=(
 EOF
+    # Vorgeschlagen wird nur, was versioniert ist; der Grund steht hinter "|".
     local required
-    for required in README.md LICENSE LICENSE.md CHANGELOG.md; do
-        if git ls-files --error-unmatch -- "${required}" >/dev/null 2>&1; then
+    for required in \
+        "README.md" \
+        "docker/README.md|Container-Anleitung, Quelle der Docker-Hub-Beschreibung" \
+        "LICENSE" \
+        "LICENSE.md" \
+        "CHANGELOG.md"; do
+        if git ls-files --error-unmatch -- "${required%%|*}" >/dev/null 2>&1; then
             printf '    "%s"\n' "${required}"
         fi
     done
