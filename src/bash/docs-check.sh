@@ -11,7 +11,8 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS); der Name wird aus dem
+# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS, CODE_VARIABLES,
+# INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -97,6 +98,8 @@ MAX_ALERTS=""
 REQUIRED=()
 SCREENSHOTS=()
 MAX_SCREENSHOT_AGE_DAYS=""
+CODE_VARIABLES=()
+INTERNAL_VARIABLES=()
 
 # Zeigt die Verwendungshinweise an.
 #
@@ -263,6 +266,25 @@ EOF
     cat <<EOF
 )
 MAX_SCREENSHOT_AGE_DAYS=""
+
+# Optional: Code (Datei, Ordner oder Muster), dessen Umgebungsvariablen
+# dokumentiert sein müssen. Jede Variable, die der Code dort ausdrücklich
+# liest (process.env.X, os.environ["X"], getenv("X") u. a.), muss in einem
+# Dokument aus DOCS stehen; sonst ist das ein Problem. Tests zählen nicht.
+CODE_VARIABLES=(
+EOF
+    local code
+    for code in src api backend frontend/src server; do
+        if [[ -d "${code}" ]]; then
+            printf '    # "%s"\n' "${code}"
+        fi
+    done
+    cat <<EOF
+)
+
+# Vom Code gelesen, aber bewusst nicht dokumentiert, je mit "|<grund>".
+INTERNAL_VARIABLES=(
+)
 EOF
 }
 
@@ -285,12 +307,12 @@ loadConfig() {
 
 # Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
 # MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
-# REQUIRED, LINKS_ONLY und SCREENSHOTS.
+# REQUIRED, LINKS_ONLY, SCREENSHOTS und CODE_VARIABLES.
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
 #   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
-#   $3    - "true", um REQUIRED, LINKS_ONLY und SCREENSHOTS zu pruefen
+#   $3    - "true", um REQUIRED, LINKS_ONLY, SCREENSHOTS und CODE_VARIABLES zu pruefen
 #   $4... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
@@ -323,6 +345,12 @@ runCheck() {
         if [[ -n "${MAX_SCREENSHOT_AGE_DAYS}" ]]; then
             args+=(--max-screenshot-age "${MAX_SCREENSHOT_AGE_DAYS}")
         fi
+        for entry in "${CODE_VARIABLES[@]+"${CODE_VARIABLES[@]}"}"; do
+            args+=(--code-variables "${entry}")
+        done
+        for entry in "${INTERNAL_VARIABLES[@]+"${INTERNAL_VARIABLES[@]}"}"; do
+            args+=(--internal-variable "${entry}")
+        done
     fi
     [[ "${verbose}" == "true" ]] && args+=(--verbose)
 
@@ -397,8 +425,8 @@ _RC=0
 loadConfig "${config_file}" || _RC=$?
 
 # Mit Pfaden genuegt eine fehlende Config: Dann gibt es nur keine verbotenen
-# Begriffe und Ausnahmen. Pflichtdateien, Nur-Link-Dokumente und Screenshots
-# gehoeren zum ganzen Projekt und werden nur ohne Pfade geprueft.
+# Begriffe und Ausnahmen. Pflichtdateien, Nur-Link-Dokumente, Screenshots und
+# Code-Variablen gehoeren zum ganzen Projekt und werden nur ohne Pfade geprueft.
 with_required="false"
 if [[ ${#paths[@]} -eq 0 ]]; then
     if [[ ${_RC} -ne 0 ]]; then

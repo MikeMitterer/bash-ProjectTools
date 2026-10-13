@@ -92,6 +92,17 @@ function fixture(): string {
     "[a](../AGENTS.md#bauen-und-prüfen) [b](../AGENTS.md#bauen-und-pr%C3%BCfen) " +
       "[c](../AGENTS.md#größe-fehlt)\n",
   );
+  // Code, dessen Umgebungsvariablen dokumentiert sein müssen: eine
+  // dokumentiert, eine nicht, eine intern; Zuweisung und Test zählen nicht.
+  write(
+    root,
+    "svc/server.ts",
+    "const port = process.env.SVC_PORT\nconst x = process.env.SVC_HIDDEN\n" +
+      "const y = import.meta.env.SVC_INTERNAL\n",
+  );
+  write(root, "svc/run.py", 'import os\nos.environ["SVC_CHILD"] = "1"\n');
+  write(root, "svc/server.test.ts", "const t = process.env.SVC_TEST_ONLY\n");
+  write(root, "svcdocs/config.md", "# Config\n\n`SVC_PORT` sets the port.\n");
   const git = (...args: string[]) =>
     new Deno.Command("git", { args: ["-C", root, ...args], stdout: "null", stderr: "null" })
       .outputSync();
@@ -228,6 +239,19 @@ const shots = run(
   "60",
 );
 const shotsWithoutLimit = run("--root", root, "--screenshot", "shots");
+const codeVariables = run(
+  "--root",
+  root,
+  "--code-variables",
+  "svc",
+  "--code-variables",
+  "nirgends",
+  "--internal-variable",
+  "SVC_INTERNAL|nur für Entwickler",
+  "--internal-variable",
+  "SVC_GONE|früher gebraucht",
+  "svcdocs",
+);
 const alerts = run("--root", root, "--max-alerts", "2", `${root}/ui/README.md`);
 const alertsUnlimited = run("--root", root, `${root}/ui/README.md`);
 // Muster in DOCS und EXCLUDE; req/a/* schließt req/a/b/deep.md über seinen Ordner aus.
@@ -506,6 +530,28 @@ Deno.test("Screenshots: Alter nach Änderungsdatum, zu alte als Hinweis", () => 
   );
   assert(shots.output.includes("2 Screenshots geprüft · 1 Problem · 1 Hinweis"), shots.output);
   assert(shotsWithoutLimit.code === 2, "ohne Grenze kein Lauf: Grenzwert nur aus der Config");
+});
+
+Deno.test("Variablen aus dem Code müssen dokumentiert oder intern sein", () => {
+  const out = codeVariables.output;
+  assert(lineFor(out, "SVC_PORT").includes("dokumentiert in svcdocs/config.md"), out);
+  const hidden = lineFor(out, "SVC_HIDDEN");
+  assert(
+    hidden.includes("in keinem Dokument genannt") && hidden.includes("svc/server.ts"),
+    `undokumentiert mit Fundstelle:\n${out}`,
+  );
+  assert(lineFor(out, "SVC_INTERNAL").includes("intern: nur für Entwickler"), "intern mit Grund");
+  assert(!out.includes("SVC_CHILD"), "Zuweisung liest nicht");
+  assert(!out.includes("SVC_TEST_ONLY"), "Tests zählen nicht");
+  assert(lineFor(out, "SVC_GONE").includes("liest sie nicht mehr"), "veralteter Eintrag");
+  assert(lineFor(out, "nirgends").includes("trifft keine Codedatei"), "Eintrag ohne Code");
+  assert(
+    out.includes("3 Code-Variablen geprüft · 2 Probleme · 1 Hinweis"),
+    `Zählung:\n${out}`,
+  );
+  assert(codeVariables.code === 1, "undokumentierte Variable lässt die Prüfung scheitern");
+  const withoutDocs = run("--root", root, "--code-variables", "svc", "--require", "LICENSE");
+  assert(withoutDocs.code === 2, "ohne Dokumente kein Lauf");
 });
 
 Deno.test("Aufräumen", () => {
