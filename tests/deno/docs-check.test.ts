@@ -554,6 +554,99 @@ Deno.test("Variablen aus dem Code müssen dokumentiert oder intern sein", () => 
   assert(withoutDocs.code === 2, "ohne Dokumente kein Lauf");
 });
 
+/**
+ * Zwei Commits: Der zweite ändert eine Variable (README-Stelle mitgeändert),
+ * führt eine neue ein, benennt ein Make-Target und einen UI-Text um, ohne die
+ * Doku dazu anzupassen.
+ */
+function changesFixture(): string {
+  const repo = Deno.makeTempDirSync({ prefix: "docs-check-changes-" });
+  const git = (...args: string[]) =>
+    new Deno.Command("git", {
+      args: ["-C", repo, "-c", "user.name=Test", "-c", "user.email=t@example.invalid", ...args],
+      stdout: "null",
+      stderr: "null",
+    }).outputSync();
+  write(repo, "Makefile", "serve: ## Server starten\n\techo serve\n");
+  write(repo, "src/app.ts", "const url = process.env.APP_URL ?? 'http://a'\n");
+  write(repo, "src/i18n/en.ts", "export default { save: 'Save changes', quit: 'Quit' }\n");
+  write(
+    repo,
+    "README.md",
+    "# App\n\nSet `APP_URL` to the server.\n\n\n\n\n\nRun `make serve`.\n\n" +
+      "\n\n\n\n\n\nClick _Save changes_ when done.\n",
+  );
+  write(repo, "notes/internal.md", "`APP_URL` intern\n");
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-q", "-m", "chore: Anfang");
+  write(repo, "Makefile", "run: ## Server starten\n\techo run\n");
+  write(
+    repo,
+    "src/app.ts",
+    "const url = process.env.APP_URL ?? 'http://b'\nconst key = process.env.APP_KEY\n",
+  );
+  write(repo, "src/i18n/en.ts", "export default { save: 'Save', quit: 'Quit' }\n");
+  write(
+    repo,
+    "README.md",
+    "# App\n\nSet `APP_URL` to the server address.\n\n\n\n\n\nRun `make serve`.\n\n" +
+      "\n\n\n\n\n\nClick _Save changes_ when done.\n",
+  );
+  git("add", "-A");
+  git("commit", "-q", "-m", "feat(api): Schlüssel aus der Umgebung lesen");
+  return repo;
+}
+
+Deno.test("Doku-Abgleich: Kandidaten zwischen zwei Ständen", () => {
+  const repo = changesFixture();
+  try {
+    const json = run(
+      "--root",
+      repo,
+      "--changes",
+      "HEAD~1..HEAD",
+      "--ui-catalog",
+      "src/i18n/*.ts",
+      "--json",
+      "README.md",
+    );
+    assert(json.code === 0, `Kandidaten sind keine Fehler:\n${json.output}`);
+    const report = JSON.parse(json.output);
+    const find = (kind: string, name: string) =>
+      report.candidates.find((c: { kind: string; name: string }) =>
+        c.kind === kind && c.name === name
+      );
+    assert(
+      find("variable", "APP_URL")?.status === "covered",
+      "geänderte README-Zeile: mitgeändert",
+    );
+    assert(find("variable", "APP_KEY")?.status === "no-doc", "neue Variable ohne Doku-Stelle");
+    const serve = find("make-target", "serve");
+    assert(serve?.status === "open" && serve.hits[0].line === 9, "umbenanntes Target, Doku alt");
+    const save = find("ui-text", "Save changes");
+    assert(save?.status === "open" && save.hits[0].line === 17, "alter UI-Text in der Doku");
+    assert(!find("ui-text", "Quit"), "unveränderter Text ist kein Kandidat");
+    assert(find("feat", "feat(api): Schlüssel aus der Umgebung lesen"), "feat-Commit genannt");
+    assert(
+      !report.candidates.some((c: { hits: Array<{ file: string }> }) =>
+        c.hits.some((hit) => hit.file.startsWith("notes/"))
+      ),
+      "nur die angegebenen Dokumente",
+    );
+    const text = run("--root", repo, "--changes", "HEAD~1", "README.md");
+    assert(
+      text.output.includes("Offen:") && text.output.includes("make-target") === false,
+      text.output,
+    );
+    assert(text.output.includes("Make-Target") && text.output.includes("README.md:9"), text.output);
+    const bad = run("--root", repo, "--changes", "nirgends..HEAD", "README.md");
+    assert(bad.code === 2 && bad.output.includes("„nirgends“"), bad.output);
+  } finally {
+    Deno.removeSync(repo, { recursive: true });
+  }
+});
+
 Deno.test("Aufräumen", () => {
   Deno.removeSync(root, { recursive: true });
 });

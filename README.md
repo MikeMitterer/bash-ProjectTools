@@ -651,6 +651,30 @@ Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
 `LINKS_ONLY`, Screenshots und `CODE_VARIABLES` prüft `--run` nur ohne
 Pfadangabe, also beim Lauf über die ganze Config.
 
+#### Doku-Abgleich zwischen zwei Ständen (`--changes`, Versuch)
+
+`docs-check.ts --changes BASE[..HEAD]` prüft nicht, sondern sammelt
+**Kandidaten** für den Doku-Abgleich einer Änderung: Bezeichner aus den
+geänderten Codezeilen (gelesene Umgebungsvariablen, Make-Targets,
+npm-Skripte, alte Texte aus den UI-Katalogen, Pfade geänderter Dateien,
+`feat`-Commits) und die Stellen in den angegebenen Dokumenten, die sie
+nennen. Gelesen wird nur aus git, nicht aus dem Arbeitsbaum; so lässt sich
+jeder frühere Merge genauso auswerten wie ein laufender Branch.
+
+```bash
+deno run --allow-read --allow-run=git src/deno/docs-check.ts --root . \
+    --changes master..HEAD --ui-catalog 'frontend/src/i18n/*.ts' \
+    --exclude docs/superpowers README.md docker/README.md docs
+```
+
+Je Kandidat nennt die Ausgabe den Status: **offen** (die Doku nennt den
+Bezeichner, keine dieser Stellen wurde mitgeändert), **ohne Doku-Stelle**
+oder **mitgeändert** (eine Fundstelle liegt höchstens drei Zeilen neben einer
+geänderten Zeile). Mit `--json` entsteht dieselbe Liste maschinenlesbar, als
+Eingabe für einen Agenten, der je Kandidat entscheidet. Kandidaten sind keine
+Fehler; der Exit-Code ist 0. Ob und wie das in `make test` oder den
+Ticket-Abschluss kommt, klärt ein Versuch in DocBench.
+
 Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
 sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,
 Optionen, Exit-Codes).

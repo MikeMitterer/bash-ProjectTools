@@ -33,6 +33,11 @@
  *   --screenshot PFAD      Bild, Ordner oder Muster, dessen Alter geprüft wird
  *   --max-screenshot-age N Hinweis, wenn ein Screenshot zuletzt vor mehr als
  *                          N Tagen geändert wurde (nur mit --screenshot)
+ *   --changes BASE[..HEAD] Statt der Prüfung: Kandidaten für den Doku-Abgleich
+ *                          zwischen zwei Ständen (HEAD ohne Angabe: HEAD).
+ *                          DATEI|ORDNER sind die Dokumente; gelesen wird nur aus git
+ *   --ui-catalog PFAD      Mit --changes: Datei oder Muster mit UI-Texten (i18n)
+ *   --json                 Mit --changes: Bericht als JSON
  *   --as PFAD              Späterer Ort einer einzelnen Datei im Repo (Entwurf)
  *   --verbose              Auch fehlerfreie Dateien, Zahlenangaben und URLs zeigen
  *
@@ -1232,6 +1237,308 @@ export function checkCodeVariables(
   return { results, staleInternal, missing };
 }
 
+// ------------------------------------------------------------ Änderungen
+
+/**
+ * Ein Kandidat für den Doku-Abgleich: ein Bezeichner, den eine Änderung im
+ * Code betrifft, und die Doku-Stellen, die ihn nennen. Ob die Doku angepasst
+ * werden muss, entscheidet ein Mensch oder Agent; das Skript findet nur die
+ * Stellen.
+ */
+export interface ChangeCandidate {
+  kind: "variable" | "make-target" | "npm-script" | "ui-text" | "path" | "feat";
+  name: string;
+  /** Geänderte Codedateien, in denen der Bezeichner vorkommt (bei feat: Commit). */
+  sources: string[];
+  /**
+   * Doku-Stellen im Ausgangsstand; `changed`, wenn die Änderung die Zeile
+   * oder ihre Umgebung (±3 Zeilen) selbst angepasst hat.
+   */
+  hits: Array<{ file: string; line: number; changed: boolean }>;
+  /** Dokumente mit Treffern, die die Änderung selbst mitgeändert hat. */
+  changedDocs: string[];
+  status: "covered" | "open" | "no-doc";
+}
+
+export interface ChangeReport {
+  base: string;
+  head: string;
+  codeFiles: string[];
+  changedDocs: string[];
+  candidates: ChangeCandidate[];
+}
+
+/** Textstellen, die beim Vergleich nicht als UI-Text gelten. */
+const UI_TEXT_MIN = 4;
+
+/** Datei- und Musterauswahl wie bei DOCS, angewandt auf eine Dateiliste. */
+function selectPaths(paths: string[], inputs: string[], excludes: string[]): string[] {
+  const matches = (path: string, entry: string) => {
+    const wanted = normalize(entry);
+    if (wanted === "" || wanted === ".") return true;
+    if (isGlob(wanted)) {
+      const matcher = globToRegExp(wanted);
+      const parts = path.split("/");
+      return parts.some((_, index) => matcher.test(parts.slice(0, index + 1).join("/")));
+    }
+    return path === wanted || path.startsWith(`${wanted}/`);
+  };
+  return paths.filter((path) =>
+    inputs.some((entry) => matches(path, entry)) &&
+    !excludes.some((entry) => matches(path, entry))
+  );
+}
+
+/** Geänderte Zeilen je Datei aus `git diff -U0`, getrennt nach entfernt und neu. */
+function diffLines(
+  root: string,
+  base: string,
+  head: string,
+  files: string[],
+): Map<string, { removed: string[]; added: string[] }> {
+  const result = new Map<string, { removed: string[]; added: string[] }>();
+  if (!files.length) return result;
+  const diff = git(root, "diff", "-U0", "--no-color", "--no-ext-diff", base, head, "--", ...files);
+  let current: { removed: string[]; added: string[] } | undefined;
+  for (const line of diff.split("\n")) {
+    const header = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (header) {
+      current = { removed: [], added: [] };
+      result.set(header[2], current);
+    } else if (current && line.startsWith("-") && !line.startsWith("---")) {
+      current.removed.push(line.slice(1));
+    } else if (current && line.startsWith("+") && !line.startsWith("+++")) {
+      current.added.push(line.slice(1));
+    }
+  }
+  return result;
+}
+
+/** npm-Skripte einer package.json in einem Stand, leer ohne Datei. */
+function npmScriptsAt(root: string, rev: string, path: string): Set<string> {
+  try {
+    return new Set(Object.keys(JSON.parse(git(root, "show", `${rev}:${path}`)).scripts ?? {}));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Sucht Kandidaten für den Doku-Abgleich zwischen zwei Ständen. Gelesen wird
+ * nur aus git (`base` und `head`), nicht aus dem Arbeitsbaum; so lässt sich
+ * jeder frühere Merge genauso prüfen wie ein laufender Branch.
+ *
+ * Bezeichner aus geänderten Codezeilen: gelesene Umgebungsvariablen,
+ * Make-Targets, npm-Skripte, alte Texte aus den UI-Katalogen (`uiCatalogs`),
+ * Pfade geänderter Dateien und `feat`-Commits. Für jeden Bezeichner die
+ * Stellen in den Dokumenten des Ausgangsstands, die ihn nennen.
+ */
+export function findChangeCandidates(
+  root: string,
+  base: string,
+  head: string,
+  docInputs: string[],
+  excludes: string[],
+  uiCatalogs: string[],
+): ChangeReport {
+  const changed = git(root, "diff", "--name-only", "--no-renames", base, head).split("\n")
+    .filter(Boolean);
+  const baseFiles = git(root, "ls-tree", "-r", "--name-only", base).split("\n").filter(Boolean);
+  const headFiles = git(root, "ls-tree", "-r", "--name-only", head).split("\n").filter(Boolean);
+  const isDoc = (path: string) => DOC_SUFFIXES.has(suffix(path));
+  const docsAtBase = selectPaths(baseFiles.filter(isDoc), docInputs, excludes)
+    .filter((path) => !isSensitive(path));
+  const docsAtHead = selectPaths(headFiles.filter(isDoc), docInputs, excludes);
+  const docSet = new Set([...docsAtBase, ...docsAtHead]);
+  const changedDocs = changed.filter((path) => docSet.has(path));
+  const codeFiles = changed.filter((path) =>
+    !isDoc(path) && !isTestPath(path) && !isSensitive(path) &&
+    !path.split("/").some((part) => SKIP_DIRS.has(part))
+  );
+  const catalogs = new Set(uiCatalogs.length ? selectPaths(codeFiles, uiCatalogs, []) : []);
+
+  // Bezeichner sammeln: Art und Name → Quellen.
+  const found = new Map<
+    string,
+    { kind: ChangeCandidate["kind"]; name: string; sources: Set<string> }
+  >();
+  const note = (kind: ChangeCandidate["kind"], name: string, source: string) => {
+    const key = `${kind}:${name}`;
+    if (!found.has(key)) found.set(key, { kind, name, sources: new Set() });
+    found.get(key)!.sources.add(source);
+  };
+  const lines = diffLines(root, base, head, codeFiles);
+  for (const path of codeFiles) {
+    note("path", path, path);
+    const { removed, added } = lines.get(path) ?? { removed: [], added: [] };
+    const changedText = [...removed, ...added].join("\n");
+    for (const pattern of ENV_READS) {
+      for (const match of changedText.matchAll(pattern)) note("variable", match[1], path);
+    }
+    const name = baseName(path);
+    if (["Makefile", "makefile", "GNUmakefile"].includes(name) || suffix(path) === ".mk") {
+      for (const line of [...removed, ...added]) {
+        const target = line.match(/^([A-Za-z0-9][\w.-]*)\s*:(?!=)/);
+        if (target && !target[1].startsWith(".")) note("make-target", target[1], path);
+      }
+    }
+    if (name === "package.json") {
+      const scripts = new Set([
+        ...npmScriptsAt(root, base, path),
+        ...npmScriptsAt(root, head, path),
+      ]);
+      for (const line of [...removed, ...added]) {
+        const key = line.match(/^\s*"([^"]+)"\s*:/);
+        if (key && scripts.has(key[1])) note("npm-script", key[1], path);
+      }
+    }
+    if (catalogs.has(path)) {
+      // Alter Wortlaut eines geänderten oder entfernten Textes: Steht er in
+      // der Doku, beschreibt sie die Oberfläche womöglich nicht mehr richtig.
+      const after = git(root, "show", `${head}:${path}`);
+      for (const line of removed) {
+        for (const match of line.matchAll(/(['"`])((?:(?!\1)[^\\]|\\.)+)\1/g)) {
+          const text = match[2];
+          if (text.length >= UI_TEXT_MIN && /\p{L}/u.test(text) && !after.includes(text)) {
+            note("ui-text", text, path);
+          }
+        }
+      }
+    }
+  }
+  for (const line of git(root, "log", "--format=%h%x09%s", `${base}..${head}`).split("\n")) {
+    const [hash, subject] = line.split("\t");
+    if (subject && /^feat(\(.*\))?!?:/.test(subject)) note("feat", subject, hash);
+  }
+
+  // Geänderte Zeilenbereiche je Dokument im Ausgangsstand (aus den Hunk-Köpfen).
+  const docRanges = new Map<string, Array<[number, number]>>();
+  if (changedDocs.length) {
+    const diff = git(
+      root,
+      "diff",
+      "-U0",
+      "--no-color",
+      "--no-ext-diff",
+      base,
+      head,
+      "--",
+      ...changedDocs,
+    );
+    let file = "";
+    for (const line of diff.split("\n")) {
+      const header = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+      if (header) file = header[1];
+      const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? /);
+      if (hunk && file) {
+        const start = Number(hunk[1]);
+        const length = hunk[2] === undefined ? 1 : Number(hunk[2]);
+        if (!docRanges.has(file)) docRanges.set(file, []);
+        docRanges.get(file)!.push([start, start + Math.max(length, 1) - 1]);
+      }
+    }
+  }
+  const NEAR = 3;
+  const touchedLine = (file: string, line: number) =>
+    (docRanges.get(file) ?? []).some(([from, to]) => line >= from - NEAR && line <= to + NEAR);
+
+  // Doku-Stellen im Ausgangsstand je Bezeichner.
+  const docTexts = docsAtBase.map((path) =>
+    [path, git(root, "show", `${base}:${path}`).split("\n")] as const
+  );
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const candidates: ChangeCandidate[] = [...found.values()].map(({ kind, name, sources }) => {
+    const hits: Array<{ file: string; line: number; changed: boolean }> = [];
+    if (kind !== "feat") {
+      const pattern = kind === "ui-text" || kind === "path"
+        ? new RegExp(escape(name))
+        : kind === "make-target"
+        ? new RegExp(`\\bmake\\s+(?:-\\S+\\s+)*${escape(name)}(?![\\w.-])`)
+        : kind === "npm-script"
+        ? new RegExp(`\\brun\\s+${escape(name)}(?![\\w:.-])|\`${escape(name)}\``)
+        : new RegExp(`(^|[^A-Za-z0-9_])${escape(name)}([^A-Za-z0-9_]|$)`);
+      for (const [file, text] of docTexts) {
+        text.forEach((content, index) => {
+          if (pattern.test(content)) {
+            hits.push({ file, line: index + 1, changed: touchedLine(file, index + 1) });
+          }
+        });
+      }
+    }
+    const touched = [...new Set(hits.filter((hit) => hit.changed).map((hit) => hit.file))];
+    return {
+      kind,
+      name,
+      sources: [...sources].sort(),
+      hits,
+      changedDocs: touched,
+      status: !hits.length ? "no-doc" : touched.length ? "covered" : "open",
+    };
+  });
+  // Pfade ohne Doku-Stelle sind kein Kandidat: Fast jede Änderung betrifft Dateien.
+  return {
+    base,
+    head,
+    codeFiles,
+    changedDocs,
+    candidates: candidates.filter((candidate) =>
+      candidate.kind !== "path" || candidate.hits.length > 0
+    ),
+  };
+}
+
+const KIND_LABELS: Record<ChangeCandidate["kind"], string> = {
+  "variable": "Variable",
+  "make-target": "Make-Target",
+  "npm-script": "npm-Skript",
+  "ui-text": "UI-Text",
+  "path": "Pfad",
+  "feat": "Feature-Commit",
+};
+
+/** Gibt den Bericht für Menschen aus. */
+function printChangeReport(report: ChangeReport, paint: (code: string, text: string) => string) {
+  console.log(
+    paint("1", `Doku-Abgleich ${report.base}..${report.head}`) +
+      `: ${count(report.codeFiles.length, "Codedatei", "Codedateien")} geändert, ` +
+      `${count(report.changedDocs.length, "Dokument", "Dokumente")} geändert` +
+      (report.changedDocs.length ? ` (${report.changedDocs.join(", ")})` : ""),
+  );
+  const order: ChangeCandidate["status"][] = ["open", "no-doc", "covered"];
+  const titles = {
+    "open": "Offen: Die Doku nennt den Bezeichner, keine dieser Stellen wurde mitgeändert",
+    "no-doc": "Ohne Doku-Stelle: Kein Dokument nennt den Bezeichner",
+    "covered": "Mitgeändert: Mindestens eine Stelle (±3 Zeilen) wurde in dieser Änderung angepasst",
+  };
+  for (const status of order) {
+    const group = report.candidates.filter((candidate) => candidate.status === status);
+    if (!group.length) continue;
+    console.log(`\n${paint(status === "open" ? "33" : "1", titles[status])}\n`);
+    for (const candidate of group) {
+      const where = candidate.hits.slice(0, 4).map((hit) =>
+        `${hit.file}:${hit.line}${hit.changed ? " (geändert)" : ""}`
+      ).join(", ") +
+        (candidate.hits.length > 4 ? ` (+${candidate.hits.length - 4})` : "");
+      console.log(
+        `  ${KIND_LABELS[candidate.kind].padEnd(14)} ${candidate.name.slice(0, 70)}` +
+          `  ← ${candidate.sources.slice(0, 2).join(", ")}`,
+      );
+      if (where) {
+        console.log(`  ${" ".repeat(14)} Doku: ${where}`);
+      }
+    }
+  }
+  const of = (status: ChangeCandidate["status"]) =>
+    report.candidates.filter((candidate) => candidate.status === status).length;
+  console.log(
+    `\nErgebnis: ${count(report.candidates.length, "Kandidat", "Kandidaten")} · ` +
+      `${of("open")} offen · ${of("no-doc")} ohne Doku-Stelle · ${of("covered")} mitgeändert`,
+  );
+  console.log(
+    "Kandidaten sind keine Fehler: Ob die Doku angepasst werden muss, entscheidet, wer die Änderung kennt.",
+  );
+}
+
 const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -1292,6 +1599,9 @@ interface Options {
   maxScreenshotAge?: number;
   codeVariables: string[];
   internalVariables: Array<{ name: string; reason: string }>;
+  changes?: { base: string; head: string };
+  uiCatalogs: string[];
+  json: boolean;
   placement?: string;
   verbose: boolean;
   configName?: string;
@@ -1309,6 +1619,8 @@ function parseArgs(args: string[]): Options | string {
     screenshots: [],
     codeVariables: [],
     internalVariables: [],
+    uiCatalogs: [],
+    json: false,
     verbose: false,
     inputs: [],
   };
@@ -1351,7 +1663,13 @@ function parseArgs(args: string[]): Options | string {
           return `--internal-variable braucht einen Variablennamen, nicht „${name.trim()}“`;
         }
         options.internalVariables.push({ name: name.trim(), reason: reason.join("|").trim() });
-      } else if (arg === "--code-variables") options.codeVariables.push(value());
+      } else if (arg === "--changes") {
+        const [base, head] = value().split("..");
+        if (!base) return "--changes braucht einen Stand, z. B. master oder master..HEAD";
+        options.changes = { base, head: head || "HEAD" };
+      } else if (arg === "--ui-catalog") options.uiCatalogs.push(value());
+      else if (arg === "--json") options.json = true;
+      else if (arg === "--code-variables") options.codeVariables.push(value());
       else if (arg === "--links-only") options.linksOnlyInputs.push(value());
       else if (arg === "--screenshot") options.screenshots.push(value());
       else if (arg === "--max-screenshot-age") {
@@ -1420,11 +1738,37 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
   const paint = painter();
+  if (options.changes) {
+    if (!options.inputs.length) {
+      console.error(
+        "Fehler: --changes braucht die Dokumente (DATEI|ORDNER), in denen gesucht wird",
+      );
+      return 2;
+    }
+    const root = Deno.realPathSync(options.root);
+    for (const rev of [options.changes.base, options.changes.head]) {
+      if (!git(root, "rev-parse", "--verify", "--quiet", `${rev}^{commit}`)) {
+        console.error(`Fehler: Stand „${rev}“ gibt es nicht`);
+        return 2;
+      }
+    }
+    const report = findChangeCandidates(
+      root,
+      options.changes.base,
+      options.changes.head,
+      options.inputs.map((input) => relativeToRoot(root, input)),
+      options.excludes,
+      options.uiCatalogs,
+    );
+    if (options.json) console.log(JSON.stringify(report, null, 2));
+    else printChangeReport(report, paint);
+    return 0;
+  }
   const project = loadProject(options.root);
   // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
   // Je Ziel: gelesener Pfad, Ort im Repo und ob nur Links geprüft werden.
