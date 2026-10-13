@@ -459,7 +459,7 @@ tote Links und Anker (`LINKS_ONLY`) und das **Alter der Screenshots**
 Aufruf im Projekt-Root:
 
 ```bash
-docs-check.sh --example > .docs-check.conf.sh   # README-Dateien und docs/ vorschlagen
+docs-check.sh --example > .docs-check.conf.sh   # README-Dateien, docs/ und Pflichtdateien vorschlagen
 docs-check.sh --run                              # alle Dokumente aus der Config
 docs-check.sh --run README.md                    # nur diese Datei
 ```

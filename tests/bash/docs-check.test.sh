@@ -141,6 +141,22 @@ testBeispielConfigIstSourcebar() {
     . <(printf '%s\n' "${output}")
     assertEquals "README.md docs" "${DOCS[*]}" "--example: README und docs/ vorgeschlagen"
     assertEquals "0" "${#FORBIDDEN[@]}" "--example: keine verbotenen Begriffe vorbelegt"
+    assertOutputLacks '"docker/README.md|' "--example: ohne docker/README.md kein Vorschlag"
+}
+
+testBeispielConfigSchlaegtDockerReadmeVor() {
+    mkdir -p "${fixture}/docker"
+    printf '# Container\n' > "${fixture}/docker/README.md"
+    git -C "${fixture}" add docker/README.md
+    runScript --example
+    # shellcheck disable=SC2034  # von der Config gesetzt
+    local REQUIRED=()
+    # shellcheck source=/dev/null
+    . <(printf '%s\n' "${output}")
+    assertEquals "README.md|docker/README.md|Container-Anleitung, Quelle der Docker-Hub-Beschreibung" \
+        "${REQUIRED[0]}|${REQUIRED[1]}" "--example: docker/README.md als Pflichtdatei vorgeschlagen"
+    git -C "${fixture}" rm -q --cached docker/README.md
+    command rm -rf -- "${fixture}/docker"
 }
 
 testRunOhneConfigScheitert() {
@@ -268,6 +284,7 @@ runAll() {
 
     testOhneArgumentKommtHilfe
     testBeispielConfigIstSourcebar
+    testBeispielConfigSchlaegtDockerReadmeVor
     testRunOhneConfigScheitert
     testRunMitConfigFindetVerbotenenBegriff
     testRunMitPfadPrueftNurDiesen
