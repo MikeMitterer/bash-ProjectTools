@@ -453,8 +453,9 @@ Je Markdown-Datei:
 - **Verbotene Begriffe** aus der Config und vergessene Platzhalter.
 
 Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
-tote Links und Anker (`LINKS_ONLY`) und das **Alter der Screenshots**
-(`SCREENSHOTS`).
+tote Links und Anker (`LINKS_ONLY`), das **Alter der Screenshots**
+(`SCREENSHOTS`) und ob jede **Umgebungsvariable, die der Code liest**, in der
+Doku steht (`CODE_VARIABLES`).
 
 Aufruf im Projekt-Root:
 
@@ -559,9 +560,20 @@ SCREENSHOTS=(
     "docs/images"
 )
 MAX_SCREENSHOT_AGE_DAYS=60
+
+# Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
+CODE_VARIABLES=(
+    "api/src"
+    "docker"
+)
+
+# Vom Code gelesen, bewusst nicht dokumentiert, je mit "|<grund>".
+INTERNAL_VARIABLES=(
+    "DEBUG_SQL|nur für die Fehlersuche im Code"
+)
 ```
 
-**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`):** Pfade gelten ab dem
+**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `CODE_VARIABLES`):** Pfade gelten ab dem
 Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
 `.gitignore`:
 
@@ -608,6 +620,16 @@ Hinweis. Stammt sie aus einer eingebundenen, nicht versionierten Bibliothek
 (etwa unter `.libs/`) oder ist sie ein allgemeiner Standard wie `NO_COLOR`,
 gehört sie hierher, damit derselbe Hinweis nicht bei jedem Lauf wiederkommt.
 
+**Variablen aus dem Code (`CODE_VARIABLES`, `INTERNAL_VARIABLES`):** Die
+Gegenrichtung zu den Variablen in der Doku. Jede Umgebungsvariable, die der
+Code in diesen Pfaden ausdrücklich liest (`process.env.X`,
+`import.meta.env.X`, `Deno.env.get("X")`, `os.environ["X"]`, `getenv("X")`
+u. a.), muss in mindestens einem Dokument aus `DOCS` stehen; sonst ist das
+ein Problem. So fällt eine neue Variable beim ersten Testlauf auf. Tests und
+Zuweisungen (`os.environ["X"] = …`) zählen nicht. Was bewusst nicht in die
+Doku gehört, steht mit Grund in `INTERNAL_VARIABLES`; liest der Code einen
+solchen Eintrag nicht mehr, gibt es einen Hinweis.
+
 **Grenzwerte (`MAX_ALERTS`, `MAX_SCREENSHOT_AGE_DAYS`)** setzt nur das
 Projekt: Ohne Eintrag prüft das Skript die Zahl der Hinweisboxen und das
 Alter der Screenshots nicht.
@@ -626,8 +648,8 @@ Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
 Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
 zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
 Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
-`LINKS_ONLY` und Screenshots prüft `--run` nur ohne Pfadangabe, also beim
-Lauf über die ganze Config.
+`LINKS_ONLY`, Screenshots und `CODE_VARIABLES` prüft `--run` nur ohne
+Pfadangabe, also beim Lauf über die ganze Config.
 
 Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
 sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,

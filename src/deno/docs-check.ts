@@ -26,6 +26,10 @@
  *                          Anker prüfen (interne Doku wie AGENTS.md)
  *   --known-variable NAME  Variable gilt als bekannt, optional NAME|GRUND
  *                          (z. B. aus einer nicht versionierten Bibliothek)
+ *   --code-variables PFAD  Code (Datei, Ordner, Muster), dessen gelesene
+ *                          Umgebungsvariablen ein geprüftes Dokument nennen muss
+ *   --internal-variable NAME|GRUND
+ *                          Vom Code gelesen, bewusst nicht dokumentiert
  *   --screenshot PFAD      Bild, Ordner oder Muster, dessen Alter geprüft wird
  *   --max-screenshot-age N Hinweis, wenn ein Screenshot zuletzt vor mehr als
  *                          N Tagen geändert wurde (nur mit --screenshot)
@@ -160,6 +164,30 @@ const COUNT =
   /\b(?:two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn|elf|zwölf|\d+)\s+(?:[\p{L}-]+\s+)?\p{L}+\b/giu;
 const UNIT =
   /\b(seconds?|minutes?|hours?|days?|weeks?|months?|years?|pixels?|bytes?|lines?|words?|characters?|times|steps?|ports?|versions?|Sekunden|Minuten|Stunden|Tage[n]?|Wochen|Monate[n]?|Jahre[n]?|Pixel|Bytes?|Zeilen|Wörter[n]?|Zeichen|Schritte[n]?|Versionen)\b/iu;
+
+/**
+ * Ausdrückliche Lesezugriffe auf Umgebungsvariablen im Code. Zuweisungen und
+ * Shell-Variablen (`$X`) zählen nicht: Sie lesen nicht sicher aus der Umgebung.
+ */
+const ENV_READS = [
+  /process\.env\.([A-Z][A-Z0-9_]+)/g,
+  /process\.env\[['"]([A-Z][A-Z0-9_]+)/g,
+  /import\.meta\.env\.([A-Z][A-Z0-9_]+)/g,
+  /Deno\.env\.get\(['"]([A-Z][A-Z0-9_]+)/g,
+  /os\.environ(?:\.get)?\(?\[?['"]([A-Z][A-Z0-9_]+)/g,
+  // getenv (Python, PHP, C), Getenv/LookupEnv (Go), System.getenv (Java/Kotlin)
+  /[Gg]etenv\(['"]([A-Z][A-Z0-9_]+)/g,
+  /LookupEnv\(['"]([A-Z][A-Z0-9_]+)/g,
+  // Rust: env::var("X"), env::var_os("X")
+  /env::var(?:_os)?\(['"]([A-Z][A-Z0-9_]+)/g,
+  // Ruby: ENV["X"], ENV.fetch("X")
+  /\bENV(?:\.fetch\(|\[)['"]([A-Z][A-Z0-9_]+)/g,
+];
+
+/** Testcode: liefert keine Projektfakten und keine Pflicht zur Doku. */
+function isTestPath(path: string): boolean {
+  return /(^|\/)(tests?|__tests__|spec)(\/|$)|\.(spec|test)\./.test(path);
+}
 
 export function isSensitive(path: string): boolean {
   const name = path.slice(path.lastIndexOf("/") + 1);
@@ -450,20 +478,10 @@ function collectFacts(project: Project): Facts {
     }
     const isCode = CODE_SUFFIXES.has(suffix(path)) || name.startsWith("Dockerfile") ||
       /(compose|Procfile)/.test(name);
-    if (isCode && !/(^|\/)(tests?|__tests__|spec)(\/|$)|\.(spec|test)\./.test(path)) {
+    if (isCode && !isTestPath(path)) {
       const text = readText(full);
       const patterns = [
-        /process\.env\.([A-Z][A-Z0-9_]+)/g,
-        /process\.env\[['"]([A-Z][A-Z0-9_]+)/g,
-        /Deno\.env\.get\(['"]([A-Z][A-Z0-9_]+)/g,
-        /os\.environ(?:\.get)?\(?\[?['"]([A-Z][A-Z0-9_]+)/g,
-        // getenv (Python, PHP, C), Getenv/LookupEnv (Go), System.getenv (Java/Kotlin)
-        /[Gg]etenv\(['"]([A-Z][A-Z0-9_]+)/g,
-        /LookupEnv\(['"]([A-Z][A-Z0-9_]+)/g,
-        // Rust: env::var("X"), env::var_os("X")
-        /env::var(?:_os)?\(['"]([A-Z][A-Z0-9_]+)/g,
-        // Ruby: ENV["X"], ENV.fetch("X")
-        /\bENV(?:\.fetch\(|\[)['"]([A-Z][A-Z0-9_]+)/g,
+        ...ENV_READS,
         /^\s*(?:ENV\s+)?([A-Z][A-Z0-9_]+)=/gm,
         /\$\{?([A-Z][A-Z0-9_]{2,})\b/g,
       ];
@@ -1150,6 +1168,70 @@ export function checkRequired(project: Project, required: Required[]): RequiredR
   });
 }
 
+/** Eine Umgebungsvariable, die der Code liest, und wo die Doku sie nennt. */
+export interface CodeVariableResult {
+  name: string;
+  /** Codedateien, die sie lesen. */
+  readIn: string[];
+  /** Dokumente, die sie nennen. */
+  documentedIn: string[];
+  /** Grund aus INTERNAL_VARIABLES, wenn sie bewusst nicht dokumentiert wird. */
+  internal?: string;
+}
+
+/**
+ * Umgebungsvariablen, die der Code in den Einträgen (Datei, Ordner oder
+ * Muster; nur versionierte Dateien ohne Tests) liest, mit den Dokumenten, die
+ * sie nennen. `staleInternal` sind Einträge aus INTERNAL_VARIABLES, die der
+ * Code nicht mehr liest; `missing` Einträge ohne Codedatei.
+ */
+export function checkCodeVariables(
+  project: Project,
+  entries: string[],
+  internal: Array<{ name: string; reason: string }>,
+  documents: string[],
+): { results: CodeVariableResult[]; staleInternal: string[]; missing: string[] } {
+  const code = project.files.filter((path) =>
+    (CODE_SUFFIXES.has(suffix(path)) || baseName(path).startsWith("Dockerfile")) &&
+    !isTestPath(path)
+  );
+  const readIn = new Map<string, Set<string>>();
+  const missing: string[] = [];
+  for (const entry of entries) {
+    const wanted = normalize(entry);
+    const matcher = isGlob(wanted) ? globToRegExp(wanted) : undefined;
+    const found = code.filter((path) =>
+      matcher ? matcher.test(path) : path === wanted || path.startsWith(`${wanted}/`)
+    );
+    if (!found.length) missing.push(entry);
+    for (const path of found) {
+      const text = readText(`${project.root}/${path}`);
+      for (const pattern of ENV_READS) {
+        for (const match of text.matchAll(pattern)) {
+          // Eine Zuweisung (os.environ["X"] = …) setzt die Variable für
+          // gestartete Prozesse, liest sie aber nicht.
+          const end = match.index! + match[0].length;
+          if (/^['"]?\]?\s*=(?!=)/.test(text.slice(end, end + 8))) continue;
+          if (!readIn.has(match[1])) readIn.set(match[1], new Set());
+          readIn.get(match[1])!.add(path);
+        }
+      }
+    }
+  }
+  const texts = documents.map((path) => [path, readText(`${project.root}/${path}`)] as const);
+  const results = [...readIn.keys()].sort().map((name) => {
+    const word = new RegExp(`(^|[^A-Za-z0-9_])${name}([^A-Za-z0-9_]|$)`);
+    return {
+      name,
+      readIn: [...readIn.get(name)!].sort(),
+      documentedIn: texts.filter(([, text]) => word.test(text)).map(([path]) => path),
+      internal: internal.find((item) => item.name === name)?.reason,
+    };
+  });
+  const staleInternal = internal.map((item) => item.name).filter((name) => !readIn.has(name));
+  return { results, staleInternal, missing };
+}
+
 const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -1208,6 +1290,8 @@ interface Options {
   linksOnlyInputs: string[];
   screenshots: string[];
   maxScreenshotAge?: number;
+  codeVariables: string[];
+  internalVariables: Array<{ name: string; reason: string }>;
   placement?: string;
   verbose: boolean;
   configName?: string;
@@ -1223,6 +1307,8 @@ function parseArgs(args: string[]): Options | string {
     knownVariables: [],
     linksOnlyInputs: [],
     screenshots: [],
+    codeVariables: [],
+    internalVariables: [],
     verbose: false,
     inputs: [],
   };
@@ -1259,7 +1345,14 @@ function parseArgs(args: string[]): Options | string {
           return `--known-variable braucht einen Variablennamen, nicht „${name}“`;
         }
         options.knownVariables.push(name);
-      } else if (arg === "--links-only") options.linksOnlyInputs.push(value());
+      } else if (arg === "--internal-variable") {
+        const [name, ...reason] = value().split("|");
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name.trim())) {
+          return `--internal-variable braucht einen Variablennamen, nicht „${name.trim()}“`;
+        }
+        options.internalVariables.push({ name: name.trim(), reason: reason.join("|").trim() });
+      } else if (arg === "--code-variables") options.codeVariables.push(value());
+      else if (arg === "--links-only") options.linksOnlyInputs.push(value());
       else if (arg === "--screenshot") options.screenshots.push(value());
       else if (arg === "--max-screenshot-age") {
         const days = Number(value());
@@ -1284,6 +1377,9 @@ function parseArgs(args: string[]): Options | string {
     !options.screenshots.length
   ) {
     return "keine Datei, kein Ordner, keine Pflichtdatei und kein Screenshot angegeben";
+  }
+  if (options.codeVariables.length && !options.inputs.length) {
+    return "--code-variables braucht Dokumente, in denen die Variablen stehen (DOCS)";
   }
   if (options.placement && options.inputs.length !== 1) return "--as gilt nur für genau eine Datei";
   return options;
@@ -1324,7 +1420,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -1470,6 +1566,77 @@ function main(args: string[]): number {
     }
   }
 
+  // Umgebungsvariablen aus dem Code: je Variable, wo die Doku sie nennt.
+  const codeVariables = options.codeVariables.length
+    ? checkCodeVariables(
+      project,
+      options.codeVariables,
+      options.internalVariables,
+      targets.filter(([, , linksOnly]) => !linksOnly).map(([, placement]) => normalize(placement)),
+    )
+    : { results: [], staleInternal: [], missing: [] };
+  const undocumented = codeVariables.results.filter((result) =>
+    !result.documentedIn.length && result.internal === undefined
+  );
+  if (options.codeVariables.length) {
+    console.log(
+      `\n${
+        paint(
+          "1",
+          `Umgebungsvariablen im Code: ${codeVariables.results.length}${source}`,
+        )
+      }\n`,
+    );
+    const nameWidth = Math.max(
+      0,
+      ...codeVariables.results.map((result) => result.name.length),
+      ...codeVariables.missing.map((entry) => entry.length),
+      ...codeVariables.staleInternal.map((name) => name.length),
+    );
+    for (const entry of codeVariables.missing) {
+      console.log(
+        `  ${paint("31", "✗")} ${entry.padEnd(nameWidth)}   ${
+          paint("31", "trifft keine Codedatei")
+        }`,
+      );
+      console.log(
+        `${" ".repeat(nameWidth + 7)}→ Eintrag in CODE_VARIABLES korrigieren oder entfernen.`,
+      );
+    }
+    for (const { name, readIn, documentedIn, internal } of codeVariables.results) {
+      if (documentedIn.length) {
+        const shown = documentedIn.slice(0, 3).join(", ") +
+          (documentedIn.length > 3 ? ` (+${documentedIn.length - 3} weitere)` : "");
+        console.log(`  ${paint("32", "✓")} ${name.padEnd(nameWidth)}   dokumentiert in ${shown}`);
+      } else if (internal !== undefined) {
+        console.log(
+          `  ${paint("32", "✓")} ${name.padEnd(nameWidth)}   intern${
+            internal ? `: ${internal}` : ""
+          }`,
+        );
+      } else {
+        console.log(
+          `  ${paint("31", "✗")} ${name.padEnd(nameWidth)}   ${
+            paint("31", "in keinem Dokument genannt")
+          } · gelesen in ${readIn.slice(0, 2).join(", ")}`,
+        );
+        console.log(
+          `${
+            " ".repeat(nameWidth + 7)
+          }→ In der Nutzer- oder Entwicklerdoku beschreiben oder mit Grund in INTERNAL_VARIABLES aufnehmen.`,
+        );
+      }
+    }
+    for (const name of codeVariables.staleInternal) {
+      console.log(
+        `  ${paint("33", "?")} ${name.padEnd(nameWidth)}   ${
+          paint("33", "steht in INTERNAL_VARIABLES, der Code liest sie nicht mehr")
+        }`,
+      );
+      console.log(`${" ".repeat(nameWidth + 7)}→ Eintrag aus INTERNAL_VARIABLES entfernen.`);
+    }
+  }
+
   // Einzelheiten je Dokument mit Befunden.
   const colors: Record<Finding["level"], string> = {
     problem: "31",
@@ -1503,12 +1670,17 @@ function main(args: string[]): number {
     ...(options.screenshots.length
       ? [count(screenshots.results.length, "Screenshot", "Screenshots")]
       : []),
+    ...(options.codeVariables.length
+      ? [count(codeVariables.results.length, "Code-Variable", "Code-Variablen")]
+      : []),
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
-    failedRequired + screenshots.missing.length;
+    failedRequired + screenshots.missing.length + codeVariables.missing.length +
+    undocumented.length;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
-    screenshots.results.filter((result) => result.tooOld).length;
+    screenshots.results.filter((result) => result.tooOld).length +
+    codeVariables.staleInternal.length;
   const verdict = problems
     ? paint("31", count(problems, "Problem", "Probleme"))
     : paint("32", "keine Probleme");

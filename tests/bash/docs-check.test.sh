@@ -264,6 +264,25 @@ EOF
     assertOutputLacks "Screenshots" "--run mit Pfad: keine Screenshots"
 }
 
+# CODE_VARIABLES und INTERNAL_VARIABLES kommen aus der Config an.
+testCodeVariablenAusConfig() {
+    mkdir -p "${fixture}/svc"
+    printf 'const a = process.env.SVC_OPEN\nconst b = process.env.SVC_INNER\n' > "${fixture}/svc/app.js"
+    git -C "${fixture}" add svc/app.js
+    cat > "${fixture}/code.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("README.md")
+CODE_VARIABLES=("svc")
+INTERNAL_VARIABLES=("SVC_INNER|nur intern")
+EOF
+    runScript --config code.conf.sh --run
+    assertEquals "1" "${rc}" "CODE_VARIABLES: undokumentierte Variable ergibt Exit-Code 1"
+    assertOutputContains "SVC_OPEN" "CODE_VARIABLES: Variable genannt"
+    assertOutputContains "intern: nur intern" "INTERNAL_VARIABLES: Grund genannt"
+    git -C "${fixture}" rm -q --cached svc/app.js
+    command rm -rf -- "${fixture}/svc"
+}
+
 testUngueltigerAusdruckBrichtAb() {
     printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nFORBIDDEN=("/[/")\n' > "${fixture}/broken.conf.sh"
     runScript --config broken.conf.sh --run
@@ -295,6 +314,7 @@ runAll() {
     testRequiredAusConfig
     testMusterInDocsUndExclude
     testNeueConfigEintraege
+    testCodeVariablenAusConfig
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then
