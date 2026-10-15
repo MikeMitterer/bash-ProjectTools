@@ -109,7 +109,7 @@ Abschnitt „Status-Target (ProjectTools-Scripte)".
 | `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
 | `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
 | `src/bash/dev-ports.sh` | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
-| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe, Alter der Screenshots | `.docs-check.conf.sh` |
+| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe, Screenshots gegen UI-Code, abhängige Dateien | `.docs-check.conf.sh` |
 
 Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
 `npm publish` überall dort, wo veröffentlicht wird:
