@@ -11,8 +11,8 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS, DEPENDS,
-# DEPENDS_HINT, CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
+# MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, CODE_VARIABLES,
+# INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -21,6 +21,7 @@
 #
 # Verwendung:
 #   docs-check.sh [--run [DATEI|ORDNER ...]] [--verbose] [--config <datei>]
+#   docs-check.sh --ack [DATEI|ORDNER ...]          # Rueckstaende quittieren
 #   docs-check.sh --example > .docs-check.conf.sh   # Starter-Config anlegen
 #   make docs-check
 #
@@ -28,6 +29,9 @@
 #   -r | --run       Dokumente aus der Config pruefen; mit Pfaden nur diese
 #   -v | --verbose   Auch fehlerfreie Dokumente, Zahlenangaben und URLs zeigen
 #   -c | --config    Alternative Config-Datei (Default: ./.docs-check.conf.sh)
+#   -a | --ack       Rueckstaende aus SCREENSHOTS, DEPENDS und DEPENDS_HINT
+#                    quittieren: angesehen, nichts zu tun. Schreibt
+#                    .docs-check.ack; ohne Pfad alle offenen
 #   -e | --example   Gueltige Beispiel-Config auf stdout ausgeben (umleitbar)
 #   -h | --help      Diese Hilfe anzeigen
 #
@@ -100,6 +104,7 @@ SCREENSHOTS=()
 MAX_SCREENSHOT_AGE_DAYS=""
 DEPENDS=()
 DEPENDS_HINT=()
+FOLLOWER_ARGS=()
 CODE_VARIABLES=()
 INTERNAL_VARIABLES=()
 
@@ -111,6 +116,7 @@ usage() {
     echo "Usage: ${APPNAME} [ options ]"
     echo
     usageLine "-r | --run [PFAD ...]" "Dokumente aus der Config pruefen; mit ${YELLOW}PFAD${NC} nur diese"
+    usageLine "-a | --ack [PFAD ...]" "Rueckstaende quittieren (angesehen, nichts zu tun); ohne ${YELLOW}PFAD${NC} alle"
     usageLine "-v | --verbose       " "Auch fehlerfreie Dokumente, Zahlenangaben und URLs zeigen"
     usageLine "-c | --config DATEI  " "Alternative Config-Datei (Default: ${CONFIG_DISPLAY})"
     usageLine "-e | --example       " "Gueltige Beispiel-Config auf stdout ausgeben (umleitbar)"
@@ -119,6 +125,7 @@ usage() {
     echo -e "${LIGHT_BLUE}Hints:${NC}"
     echo -e "    Alle Dokumente pruefen:   ${GREEN}${APPNAME} --run${NC}"
     echo -e "    Einzelne Datei pruefen:   ${GREEN}${APPNAME} --run README.md${NC}"
+    echo -e "    Screenshot quittieren:    ${GREEN}${APPNAME} --ack docs/images/dashboard.png${NC}"
     echo -e "    Config anlegen:           ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
     echo
 }
@@ -256,26 +263,37 @@ EOF
     cat <<EOF
 )
 
-# Optional: Screenshots, deren Alter geprüft wird (Datei, Ordner oder Muster;
-# ohne von git ignorierte Bilder). Maßgeblich ist der letzte Commit, der das
-# Bild ändert; uncommittete Bilder gelten als neu. Ist ein Bild älter als
-# MAX_SCREENSHOT_AGE_DAYS Tage, erscheint ein Hinweis; die Prüfung scheitert
-# daran nicht. Beide Einträge gehören zusammen.
+# Optional: Screenshots und der UI-Code, den sie zeigen, je
+# "<ui-code>|<bilder>|<grund>". UI-Code: Datei, Ordner oder Muster, mehrere
+# mit Komma; Bilder: Datei, Ordner oder Muster (ohne von git ignorierte).
+# Hat sich der UI-Code nach einem Bild geändert, erscheint ein Hinweis; die
+# Prüfung scheitert daran nicht. Zeiten kommen aus git, nicht vom Tagesdatum.
+# Zeigt das Bild die Oberfläche noch richtig: docs-check.sh --ack <bild>.
 SCREENSHOTS=(
 EOF
     if [[ -d docs/images ]]; then
-        printf '    # "docs/images"\n'
+        local ui
+        for ui in src frontend/src dashboard/src web app/templates; do
+            if [[ -d "${ui}" ]]; then
+                printf '    # "%s|docs/images|Oberfläche"\n' "${ui}"
+            fi
+        done
     fi
     cat <<EOF
 )
-MAX_SCREENSHOT_AGE_DAYS=""
 
 # Optional: Dateien, die einer anderen bald nach deren Änderung folgen müssen,
 # je "<basis>|<abhängig>|<tage>|<grund>" (z. B. Übersetzung oder erzeugte
 # Vorschau). Ändert sich die Basis nach der abhängigen Datei, ist das ein
 # Hinweis, nach <tage> Tagen ein Problem; 0 heißt: im selben Commit. Zeiten
 # kommen aus git, uncommittete Änderungen zählen als jetzt. Die Basis darf ein
-# Ordner sein. DEPENDS_HINT: gleiches Format, auch überfällig nur ein Hinweis.
+# Ordner, ein Muster oder eine Liste mit Komma sein. DEPENDS_HINT: gleiches
+# Format, auch überfällig nur ein Hinweis.
+#
+# Ist nach einer Änderung der Basis nichts zu tun, quittieren statt die Datei
+# anzufassen: docs-check.sh --ack <abhängig>. Das schreibt den Stand der Basis
+# nach .docs-check.ack (mitcommitten); ändert sich die Basis wieder, kommt der
+# Hinweis zurück. Nicht bei Frist 0 und nicht bei uncommitteter Basis.
 DEPENDS=(
     # "README.md|README.de.md|3|deutsche Fassung"
 )
@@ -320,6 +338,41 @@ loadConfig() {
     [[ ${#DOCS[@]} -gt 0 || ${#LINKS_ONLY[@]} -gt 0 || ${#REQUIRED[@]} -gt 0 ]] || return 2
 }
 
+# Sammelt SCREENSHOTS, DEPENDS und DEPENDS_HINT als Argumente fuer die
+# Deno-Pruefung in FOLLOWER_ARGS: die Dateien, die einer Basis folgen muessen.
+collectFollowerArgs() {
+    local entry
+    FOLLOWER_ARGS=()
+    for entry in "${SCREENSHOTS[@]+"${SCREENSHOTS[@]}"}"; do
+        FOLLOWER_ARGS+=(--screenshot "${entry}")
+    done
+    for entry in "${DEPENDS[@]+"${DEPENDS[@]}"}"; do
+        FOLLOWER_ARGS+=(--depends "${entry}")
+    done
+    for entry in "${DEPENDS_HINT[@]+"${DEPENDS_HINT[@]}"}"; do
+        FOLLOWER_ARGS+=(--depends-hint "${entry}")
+    done
+}
+
+# Quittiert Rueckstaende aus SCREENSHOTS, DEPENDS und DEPENDS_HINT. Die
+# Deno-Pruefung darf dafuer nur .docs-check.ack im Projekt-Root schreiben.
+#
+# Params:
+#   $@ - abhaengige Dateien oder Ordner; ohne Angabe alle offenen
+runAck() {
+    collectFollowerArgs
+    local args=(--root . "${FOLLOWER_ARGS[@]+"${FOLLOWER_ARGS[@]}"}") path
+    if [[ $# -eq 0 ]]; then
+        args+=(--ack-all)
+    fi
+    for path in "$@"; do
+        args+=(--ack "${path}")
+    done
+    # Aufgeloester Pfad: Die Pruefung arbeitet mit dem echten Projekt-Root.
+    deno run --quiet --allow-read --allow-run=git --allow-write="$(pwd -P)/.docs-check.ack" \
+        "${DOCS_CHECK_TS}" "${args[@]}"
+}
+
 # Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
 # MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
 # REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS und CODE_VARIABLES.
@@ -354,18 +407,8 @@ runCheck() {
         for entry in "${LINKS_ONLY[@]+"${LINKS_ONLY[@]}"}"; do
             args+=(--links-only "${entry}")
         done
-        for entry in "${SCREENSHOTS[@]+"${SCREENSHOTS[@]}"}"; do
-            args+=(--screenshot "${entry}")
-        done
-        if [[ -n "${MAX_SCREENSHOT_AGE_DAYS}" ]]; then
-            args+=(--max-screenshot-age "${MAX_SCREENSHOT_AGE_DAYS}")
-        fi
-        for entry in "${DEPENDS[@]+"${DEPENDS[@]}"}"; do
-            args+=(--depends "${entry}")
-        done
-        for entry in "${DEPENDS_HINT[@]+"${DEPENDS_HINT[@]}"}"; do
-            args+=(--depends-hint "${entry}")
-        done
+        collectFollowerArgs
+        args+=("${FOLLOWER_ARGS[@]+"${FOLLOWER_ARGS[@]}"}")
         for entry in "${CODE_VARIABLES[@]+"${CODE_VARIABLES[@]}"}"; do
             args+=(--code-variables "${entry}")
         done
@@ -401,6 +444,13 @@ while [[ $# -gt 0 ]]; do
                 shift
             done
             ;;
+        -a|--ack)
+            action="ack"
+            while [[ $# -gt 1 && "$2" != -* ]]; do
+                paths+=("$2")
+                shift
+            done
+            ;;
         -v|--verbose)
             verbose="true"
             ;;
@@ -429,7 +479,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-if [[ "${action}" != "run" ]]; then
+if [[ "${action}" != "run" && "${action}" != "ack" ]]; then
     usage
     exit 0
 fi
@@ -444,6 +494,25 @@ fi
 
 _RC=0
 loadConfig "${config_file}" || _RC=$?
+
+# Das Alter der Screenshots gegen das Tagesdatum gibt es nicht mehr.
+if [[ -n "${MAX_SCREENSHOT_AGE_DAYS}" ]]; then
+    {
+        echo -e "${RED}Fehler:${NC} MAX_SCREENSHOT_AGE_DAYS entfaellt."
+        echo -e "Screenshots werden mit dem UI-Code verglichen, den sie zeigen:"
+        echo -e "  ${GREEN}SCREENSHOTS=(\"<ui-code>|<bilder>|<grund>\")${NC}"
+    } >&2
+    exit 2
+fi
+
+if [[ "${action}" == "ack" ]]; then
+    if [[ ${_RC} -eq 1 ]]; then
+        echo -e "${RED}Fehler:${NC} Config '${config_file}' nicht gefunden." >&2
+        exit 1
+    fi
+    runAck "${paths[@]+"${paths[@]}"}"
+    exit $?
+fi
 
 # Mit Pfaden genuegt eine fehlende Config: Dann gibt es nur keine verbotenen
 # Begriffe und Ausnahmen. Pflichtdateien, Nur-Link-Dokumente, Screenshots und

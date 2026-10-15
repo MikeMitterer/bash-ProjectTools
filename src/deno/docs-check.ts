@@ -30,15 +30,20 @@
  *                          Umgebungsvariablen ein geprüftes Dokument nennen muss
  *   --internal-variable NAME|GRUND
  *                          Vom Code gelesen, bewusst nicht dokumentiert
- *   --screenshot PFAD      Bild, Ordner oder Muster, dessen Alter geprüft wird
- *   --max-screenshot-age N Hinweis, wenn ein Screenshot laut git zuletzt vor
- *                          mehr als N Tagen geändert wurde (nur mit --screenshot)
+ *   --screenshot UI-CODE|BILDER[|GRUND]
+ *                          Hinweis, wenn sich der UI-Code (Datei, Ordner,
+ *                          Muster, mehrere mit Komma) nach einem Bild geändert
+ *                          hat; nicht gegen das Tagesdatum
  *   --depends BASIS|ABHÄNGIG|TAGE[|GRUND]
  *                          ABHÄNGIG muss BASIS folgen: Ändert sich die Basis
  *                          später, ist das ein Hinweis, nach TAGE Tagen ein
  *                          Problem (0: im selben Commit). Zeiten aus git;
  *                          uncommittete Änderungen zählen als „jetzt“
  *   --depends-hint EINTRAG Wie --depends, aber auch überfällig nur ein Hinweis
+ *   --ack PFAD             Statt der Prüfung: offene Rückstände dieser
+ *                          abhängigen Datei oder dieses Ordners quittieren
+ *                          (schreibt .docs-check.ack; braucht --allow-write)
+ *   --ack-all              Statt der Prüfung: alle offenen Rückstände quittieren
  *   --changes BASE[..HEAD] Statt der Prüfung: Kandidaten für den Doku-Abgleich
  *                          zwischen zwei Ständen (HEAD ohne Angabe: HEAD).
  *                          DATEI|ORDNER sind die Dokumente; gelesen wird nur aus git
@@ -1554,22 +1559,44 @@ export interface Change {
   time: number;
   /** Uncommittet, gestagt oder neu: zählt als „jetzt“. */
   pending: boolean;
+  /** Letzter Commit, der den Pfad ändert; fehlt bei uncommitteten Änderungen. */
+  commit?: string;
+}
+
+/** Zerlegt eine Pfadangabe mit Kommas in einzelne Pfade oder Muster. */
+function splitPaths(spec: string): string[] {
+  return spec.split(",")
+    .map((path) => path.trim().replace(/^\.\//, "").replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
+/** Pfad oder Muster als git-Pfadangabe; Muster wie in `.gitignore`. */
+function pathspec(path: string): string {
+  return isGlob(path) ? `:(glob)${path}` : path;
 }
 
 /**
- * Wann sich eine Datei oder ein Ordner zuletzt geändert hat. Uncommittete,
- * gestagte und neue, nicht ignorierte Dateien gelten als „jetzt“; sonst zählt
- * die Commit-Zeit des letzten Commits, der den Pfad ändert. Das Dateidatum
- * taugt dafür nicht: Klon, Branchwechsel, Merge und Stash setzen es neu.
- * `undefined`, wenn der Pfad fehlt oder git ihn nicht kennt.
+ * Wann sich Dateien, Ordner oder Muster (mit Komma getrennt) zuletzt geändert
+ * haben. Uncommittete, gestagte und neue, nicht ignorierte Dateien gelten als
+ * „jetzt“; sonst zählt die Commit-Zeit des letzten Commits, der einen der
+ * Pfade ändert. Das Dateidatum taugt dafür nicht: Klon, Branchwechsel, Merge
+ * und Stash setzen es neu. `undefined`, wenn keiner der Pfade da ist oder git
+ * ihn nicht kennt.
  */
-export function lastChange(root: string, path: string, now = Date.now()): Change | undefined {
-  if (!exists(`${root}/${path}`)) return undefined;
-  if (git(root, "status", "--porcelain", "--untracked-files=all", "--", path)) {
+export function lastChange(root: string, spec: string, now = Date.now()): Change | undefined {
+  const paths = splitPaths(spec);
+  const specs = paths.map(pathspec);
+  const present = paths.some((path, index) =>
+    isGlob(path)
+      ? git(root, "ls-files", "--cached", "--others", "--exclude-standard", "--", specs[index])
+      : exists(`${root}/${path}`)
+  );
+  if (!present) return undefined;
+  if (git(root, "status", "--porcelain", "--untracked-files=all", "--", ...specs)) {
     return { time: now, pending: true };
   }
-  const seconds = Number(git(root, "log", "-1", "--format=%ct", "--", path));
-  return seconds ? { time: seconds * 1000, pending: false } : undefined;
+  const [seconds, commit] = git(root, "log", "-1", "--format=%ct %H", "--", ...specs).split(" ");
+  return Number(seconds) ? { time: Number(seconds) * 1000, pending: false, commit } : undefined;
 }
 
 /** Kalendertag einer Änderung oder „uncommittet“. */
@@ -1577,63 +1604,58 @@ function changeLabel(change: Change): string {
   return change.pending ? "uncommittet" : new Date(change.time).toISOString().slice(0, 10);
 }
 
-/** Alter eines Screenshots nach seiner letzten Änderung laut git. */
-export interface ScreenshotResult {
-  path: string;
-  changed: Date;
-  ageDays: number;
-  tooOld: boolean;
-}
+/** Datei mit den Quittungen, im Projekt-Root und versioniert. */
+export const ACK_FILE = ".docs-check.ack";
 
 /**
- * Bilder, die die Einträge treffen (Datei, Ordner samt Unterordnern oder
- * Muster), mit ihrem Alter. Gesucht wird unter den Dateien, die git nicht
- * ignoriert, also auch unter neu aufgenommenen. Einträge ohne Treffer stehen
- * in `missing`.
+ * Quittung: Die abhängige Datei wurde nach einer Änderung der Basis geprüft,
+ * es war nichts zu tun. Sie gilt, solange der letzte Commit der Basis derselbe
+ * ist.
  */
-export function checkScreenshots(
-  project: Project,
-  entries: string[],
-  maxAgeDays: number,
-  now = Date.now(),
-): { results: ScreenshotResult[]; missing: string[] } {
-  const listed = git(project.root, "ls-files", "--cached", "--others", "--exclude-standard");
-  const images = [...new Set(listed ? listed.split("\n") : project.files)]
-    .filter((path) => IMAGE_SUFFIXES.has(suffix(path).toLowerCase()) && !isSensitive(path))
-    .filter((path) => exists(`${project.root}/${path}`));
-  const paths = new Set<string>();
-  const missing: string[] = [];
-  for (const entry of entries) {
-    const wanted = normalize(entry);
-    const matcher = isGlob(wanted) ? globToRegExp(wanted) : undefined;
-    const found = images.filter((path) =>
-      matcher ? matcher.test(path) : path === wanted || path.startsWith(`${wanted}/`)
-    );
-    if (!found.length) missing.push(entry);
-    for (const path of found) paths.add(path);
-  }
-  const results = [...paths].sort().map((path) => {
-    const changed = new Date(lastChange(project.root, path, now)?.time ?? now);
-    const ageDays = Math.max(0, Math.floor((now - changed.getTime()) / DAY_MS));
-    return { path, changed, ageDays, tooOld: ageDays > maxAgeDays };
-  });
-  return { results, missing };
+export interface Ack {
+  dependent: string;
+  base: string;
+  commit: string;
+  date: string;
 }
 
-/** Ein Dokument, das einem anderen bald nach dessen Änderung folgen muss. */
+/** Liest ACK_FILE (`abhängig|basis|commit|datum` je Zeile); fehlt sie, keine Quittungen. */
+export function loadAcks(root: string): Ack[] {
+  let text: string;
+  try {
+    text = Deno.readTextFileSync(`${root}/${ACK_FILE}`);
+  } catch {
+    return [];
+  }
+  return text.split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const [dependent = "", base = "", commit = "", date = ""] = line.split("|")
+        .map((part) => part.trim());
+      return { dependent, base, commit, date };
+    })
+    .filter((ack) => ack.dependent && ack.base && ack.commit);
+}
+
+/** Ein Dokument oder Bild, das einer Basis bald nach deren Änderung folgen muss. */
 export interface Dependency {
+  /** Datei, Ordner oder Muster, mehrere mit Komma getrennt. */
   base: string;
   dependent: string;
-  /** Tage, die die abhängige Datei hinter der Basis liegen darf; 0: derselbe Commit. */
-  maxLagDays: number;
+  /**
+   * Tage, die die abhängige Datei hinter der Basis liegen darf; 0: derselbe
+   * Commit. Ohne Wert (Screenshots) gibt es keine Frist, nur einen Hinweis.
+   */
+  maxLagDays?: number;
   reason: string;
-  /** Aus DEPENDS_HINT: auch überfällig nur ein Hinweis. */
+  /** Aus DEPENDS_HINT oder SCREENSHOTS: auch überfällig nur ein Hinweis. */
   hintOnly: boolean;
 }
 
 /**
- * Liest `BASIS|ABHÄNGIG|TAGE[|GRUND]`. Die Basis darf auch ein Ordner sein,
- * etwa die i18n-Kataloge, von denen ein Handbuch abhängt.
+ * Liest `BASIS|ABHÄNGIG|TAGE[|GRUND]`. Die Basis darf ein Ordner, ein Muster
+ * oder eine Liste mit Komma sein, etwa die i18n-Kataloge eines Handbuchs.
  */
 export function parseDependency(entry: string, hintOnly: boolean): Dependency | string {
   const [base, dependent, days, ...reason] = entry.split("|").map((part) => part.trim());
@@ -1642,10 +1664,9 @@ export function parseDependency(entry: string, hintOnly: boolean): Dependency | 
   if (!days || !Number.isInteger(maxLagDays) || maxLagDays < 0) {
     return `Abhängigkeit braucht eine ganze Zahl von Tagen ab 0: ${entry}`;
   }
-  const clean = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
   return {
-    base: clean(base),
-    dependent: clean(dependent),
+    base: splitPaths(base).join(","),
+    dependent: splitPaths(dependent).join(","),
     maxLagDays,
     reason: reason.join("|"),
     hintOnly,
@@ -1661,20 +1682,29 @@ export interface DependencyResult {
   dependent?: Change;
   /** Die Basis hat sich nach der abhängigen Datei geändert. */
   behind: boolean;
+  /** Quittung für den aktuellen Stand der Basis. */
+  acked?: Ack;
   /** Bis dahin muss die abhängige Datei nachgezogen sein. */
   due?: number;
   /** Frist überschritten; bei `maxLagDays` 0 sofort. */
   overdue: boolean;
 }
 
+/** Lässt sich quittieren: Basis committet und keine Pflicht zum selben Commit. */
+function ackable(result: DependencyResult): boolean {
+  return result.behind && !result.base!.pending && result.dependency.maxLagDays !== 0;
+}
+
 /**
  * Vergleicht je Abhängigkeit die letzten Änderungen laut git (lastChange).
  * Ändern sich beide im selben Commit oder sind beide uncommittet, ist die
- * abhängige Datei nachgezogen.
+ * abhängige Datei nachgezogen. Eine Quittung für den letzten Commit der Basis
+ * hebt den Rückstand auf.
  */
 export function checkDependencies(
   root: string,
   dependencies: Dependency[],
+  acks: Ack[] = [],
   now = Date.now(),
 ): DependencyResult[] {
   return dependencies.map((dependency) => {
@@ -1690,10 +1720,163 @@ export function checkDependencies(
         overdue: false,
       };
     }
-    const behind = base.time > dependent.time;
-    const due = base.time + dependency.maxLagDays * DAY_MS;
-    return { dependency, base, dependent, behind, due, overdue: behind && now >= due };
+    const result: DependencyResult = {
+      dependency,
+      base,
+      dependent,
+      behind: base.time > dependent.time,
+      overdue: false,
+    };
+    if (ackable(result)) {
+      result.acked = acks.find((ack) =>
+        ack.dependent === dependency.dependent && ack.base === dependency.base &&
+        ack.commit === base.commit
+      );
+    }
+    if (dependency.maxLagDays !== undefined) {
+      result.due = base.time + dependency.maxLagDays * DAY_MS;
+      result.overdue = result.behind && !result.acked && now >= result.due;
+    }
+    return result;
   });
+}
+
+/** Scheitert die Prüfung an dieser Abhängigkeit? */
+export function dependencyProblem(result: DependencyResult): boolean {
+  return result.missing !== undefined || (result.overdue && !result.dependency.hintOnly);
+}
+
+/** Offener Hinweis: Basis neuer, nicht quittiert, aber kein Problem. */
+export function dependencyOpen(result: DependencyResult): boolean {
+  return result.behind && !result.acked && !dependencyProblem(result);
+}
+
+/** Screenshots und der Code, den sie zeigen. */
+export interface ScreenshotEntry {
+  /** UI-Code: Datei, Ordner oder Muster, mehrere mit Komma getrennt. */
+  base: string;
+  /** Bilder: Datei, Ordner samt Unterordnern oder Muster. */
+  images: string;
+  reason: string;
+}
+
+/** Liest `UI-CODE|BILDER[|GRUND]`. */
+export function parseScreenshot(entry: string): ScreenshotEntry | string {
+  const [base, images, ...reason] = entry.split("|").map((part) => part.trim());
+  if (!base || !images) {
+    return `Screenshot-Eintrag braucht UI-CODE|BILDER[|GRUND]; das Alter wird mit dem Code ` +
+      `verglichen, den die Bilder zeigen, nicht mit dem Tagesdatum: ${entry}`;
+  }
+  return { base: splitPaths(base).join(","), images: normalize(images), reason: reason.join("|") };
+}
+
+/**
+ * Je Bild, das ein Eintrag trifft, eine Abhängigkeit vom UI-Code ohne Frist:
+ * Hat sich der Code nach dem Bild geändert, ist das ein Hinweis, bis das Bild
+ * neu aufgenommen oder quittiert ist. Gesucht wird unter den Dateien, die git
+ * nicht ignoriert. Einträge ohne Bild stehen in `missing`.
+ */
+export function checkScreenshots(
+  project: Project,
+  entries: ScreenshotEntry[],
+  acks: Ack[] = [],
+  now = Date.now(),
+): { results: DependencyResult[]; missing: ScreenshotEntry[] } {
+  const listed = git(project.root, "ls-files", "--cached", "--others", "--exclude-standard");
+  const images = [...new Set(listed ? listed.split("\n") : project.files)]
+    .filter((path) => IMAGE_SUFFIXES.has(suffix(path).toLowerCase()) && !isSensitive(path))
+    .filter((path) => exists(`${project.root}/${path}`))
+    .sort();
+  const dependencies: Dependency[] = [];
+  const missing: ScreenshotEntry[] = [];
+  for (const entry of entries) {
+    const matcher = isGlob(entry.images) ? globToRegExp(entry.images) : undefined;
+    const found = images.filter((path) =>
+      matcher ? matcher.test(path) : path === entry.images || path.startsWith(`${entry.images}/`)
+    );
+    if (!found.length) missing.push(entry);
+    for (const path of found) {
+      dependencies.push({
+        base: entry.base,
+        dependent: path,
+        reason: entry.reason,
+        hintOnly: true,
+      });
+    }
+  }
+  return { results: checkDependencies(project.root, dependencies, acks, now), missing };
+}
+
+/**
+ * Quittiert offene Rückstände: schreibt je Paar den letzten Commit der Basis
+ * in ACK_FILE und entfernt überholte Quittungen dieser Paare. `paths` leer:
+ * alle. Frist 0 und uncommittete Basen lassen sich nicht quittieren.
+ * Rückgabe: Exit-Code, 1 wenn etwas nicht quittiert werden konnte.
+ */
+export function acknowledge(
+  root: string,
+  results: DependencyResult[],
+  paths: string[],
+  existing: Ack[],
+  paint: (code: string, text: string) => string = (_code, text) => text,
+  now = Date.now(),
+): number {
+  const wanted = paths.map(normalize);
+  const matches = (path: string, dependent: string) =>
+    dependent === path || dependent.startsWith(`${path}/`);
+  const candidates = results.filter((result) =>
+    result.behind && !result.acked && !result.missing &&
+    (!wanted.length || wanted.some((path) => matches(path, result.dependency.dependent)))
+  );
+  const accepted = candidates.filter(ackable);
+  const refused = candidates.filter((result) => !ackable(result));
+  const unmatched = wanted.filter((path) =>
+    !candidates.some((result) => matches(path, result.dependency.dependent))
+  );
+  const samePair = (ack: Ack, result: DependencyResult) =>
+    ack.dependent === result.dependency.dependent && ack.base === result.dependency.base;
+
+  if (accepted.length) {
+    // Behalten: Quittungen fremder Paare und noch gültige; überholte fallen weg.
+    const kept = existing.filter((ack) => {
+      const result = results.find((candidate) => samePair(ack, candidate));
+      return !result || (result.acked === ack && !accepted.includes(result));
+    });
+    const date = new Date(now).toISOString().slice(0, 10);
+    const lines = [
+      "# Quittungen von docs-check (docs-check.sh --ack): Die abhängige Datei wurde",
+      "# nach einer Änderung der Basis geprüft, es war nichts zu tun. Eine Zeile gilt,",
+      "# bis die Basis einen neueren Commit hat. Format: abhängig|basis|commit|datum",
+      ...kept.map((ack) => `${ack.dependent}|${ack.base}|${ack.commit}|${ack.date}`),
+      ...accepted.map((result) =>
+        `${result.dependency.dependent}|${result.dependency.base}|${result.base!.commit}|${date}`
+      ),
+    ];
+    Deno.writeTextFileSync(`${root}/${ACK_FILE}`, `${lines.join("\n")}\n`);
+  }
+  for (const result of accepted) {
+    console.log(
+      `  ${paint("32", "✓")} ${result.dependency.dependent}   quittiert für Stand ${
+        result.base!.commit!.slice(0, 7)
+      } von ${result.dependency.base}`,
+    );
+  }
+  for (const result of refused) {
+    const why = result.dependency.maxLagDays === 0
+      ? "gehört in denselben Commit wie die Basis; neu erzeugen oder anpassen statt quittieren"
+      : "Basis ist uncommittet; erst committen, dann quittieren";
+    console.log(`  ${paint("31", "✗")} ${result.dependency.dependent}   ${paint("31", why)}`);
+  }
+  for (const path of unmatched) {
+    console.log(`  ${paint("33", "?")} ${path}   nichts zu quittieren`);
+  }
+  if (!candidates.length && !wanted.length) console.log("Nichts zu quittieren.");
+  if (accepted.length) {
+    console.log(
+      `\n${count(accepted.length, "Quittung", "Quittungen")} in ${ACK_FILE}; mitcommitten.`,
+    );
+  }
+  return refused.length || unmatched.length ? 1 : 0;
 }
 
 // ------------------------------------------------------------ Kommandozeile
@@ -1706,8 +1889,9 @@ interface Options {
   excludes: string[];
   knownVariables: string[];
   linksOnlyInputs: string[];
-  screenshots: string[];
-  maxScreenshotAge?: number;
+  screenshots: ScreenshotEntry[];
+  /** Quittieren statt prüfen; leer: alle offenen Rückstände. */
+  ack?: string[];
   dependencies: Dependency[];
   codeVariables: string[];
   internalVariables: Array<{ name: string; reason: string }>;
@@ -1784,28 +1968,27 @@ function parseArgs(args: string[]): Options | string {
       else if (arg === "--json") options.json = true;
       else if (arg === "--code-variables") options.codeVariables.push(value());
       else if (arg === "--links-only") options.linksOnlyInputs.push(value());
-      else if (arg === "--screenshot") options.screenshots.push(value());
+      else if (arg === "--screenshot") {
+        const screenshot = parseScreenshot(value());
+        if (typeof screenshot === "string") return screenshot;
+        options.screenshots.push(screenshot);
+      } else if (arg === "--ack") (options.ack ??= []).push(value());
+      else if (arg === "--ack-all") options.ack ??= [];
       else if (arg === "--depends" || arg === "--depends-hint") {
         const dependency = parseDependency(value(), arg === "--depends-hint");
         if (typeof dependency === "string") return dependency;
         options.dependencies.push(dependency);
       } else if (arg === "--max-screenshot-age") {
-        const days = Number(value());
-        if (!Number.isInteger(days) || days < 1) {
-          return "--max-screenshot-age braucht eine ganze Zahl von Tagen ab 1";
-        }
-        options.maxScreenshotAge = days;
+        return "--max-screenshot-age entfällt: Screenshots werden mit dem UI-Code verglichen, " +
+          'den sie zeigen (SCREENSHOTS: "<ui-code>|<bilder>|<grund>")';
       } else if (arg.startsWith("--")) return `unbekannte Option: ${arg}`;
       else options.inputs.push(arg);
     } catch (error) {
       return (error as Error).message;
     }
   }
-  if (options.screenshots.length && options.maxScreenshotAge === undefined) {
-    return "--screenshot braucht --max-screenshot-age (Config: MAX_SCREENSHOT_AGE_DAYS)";
-  }
-  if (!options.screenshots.length && options.maxScreenshotAge !== undefined) {
-    return "--max-screenshot-age braucht mindestens ein --screenshot (Config: SCREENSHOTS)";
+  if (options.ack && !options.screenshots.length && !options.dependencies.length) {
+    return "--ack braucht Abhängigkeiten oder Screenshots (Config: DEPENDS, DEPENDS_HINT, SCREENSHOTS)";
   }
   if (
     !options.inputs.length && !options.linksOnlyInputs.length && !options.required.length &&
@@ -1855,7 +2038,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot UI-CODE|BILDER[|GRUND]] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--ack PFAD | --ack-all] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -1887,6 +2070,14 @@ function main(args: string[]): number {
     return 0;
   }
   const project = loadProject(options.root);
+  const acks = loadAcks(project.root);
+  if (options.ack) {
+    const results = [
+      ...checkScreenshots(project, options.screenshots, acks).results,
+      ...checkDependencies(project.root, options.dependencies, acks),
+    ];
+    return acknowledge(project.root, results, options.ack, acks, paint);
+  }
   // Ein Entwurf (--as) liegt außerhalb des Repos und wird unter seinem Pfad gelesen.
   // Je Ziel: gelesener Pfad, Ort im Repo und ob nur Links geprüft werden.
   const targets: Array<[string, string, boolean]> = [];
@@ -1978,104 +2169,113 @@ function main(args: string[]): number {
     }
   }
 
-  // Screenshots: je Bild Commit-Datum und Alter; zu alte als Hinweis.
-  const maxAge = options.maxScreenshotAge ?? 0;
+  // Screenshots und abhängige Dokumente: Basis später geändert ist ein Hinweis,
+  // bei DEPENDS nach der Frist ein Problem; eine Quittung hebt beides auf.
   const screenshots = options.screenshots.length
-    ? checkScreenshots(project, options.screenshots, maxAge)
+    ? checkScreenshots(project, options.screenshots, acks)
     : { results: [], missing: [] };
+  const dependencies = checkDependencies(project.root, options.dependencies, acks);
+  const followers = [...screenshots.results, ...dependencies];
+
+  /** Eine Zeile je Paar samt Rat; `label` ist das Bild oder „Basis → abhängig“. */
+  const printFollower = (
+    result: DependencyResult,
+    label: string,
+    width: number,
+    screenshot: boolean,
+  ) => {
+    const { dependency, missing, base, dependent, behind, acked, due, overdue } = result;
+    const name = label.padEnd(width);
+    const reason = dependency.reason ? ` · ${dependency.reason}` : "";
+    const advise = (text: string) => console.log(`${" ".repeat(width + 7)}→ ${text}`);
+    if (missing !== undefined) {
+      console.log(
+        `  ${paint("31", "✗")} ${name}   ${paint("31", `${missing} fehlt oder ist nicht in git`)}`,
+      );
+      advise(
+        `Datei anlegen und committen oder Eintrag in ${
+          screenshot ? "SCREENSHOTS" : "DEPENDS"
+        } korrigieren.`,
+      );
+      return;
+    }
+    if (acked) {
+      console.log(`  ${paint("32", "✓")} ${name}   quittiert am ${acked.date}${reason}`);
+      return;
+    }
+    if (!behind) {
+      console.log(
+        `  ${paint("32", "✓")} ${name}   ${screenshot ? "aktuell" : "nachgezogen"} (${
+          changeLabel(dependent!)
+        })${reason}`,
+      );
+      return;
+    }
+    const state = screenshot
+      ? `Code geändert ${changeLabel(base!)}, Bild ${changeLabel(dependent!)}`
+      : `Basis geändert ${changeLabel(base!)}, abhängig ${changeLabel(dependent!)}`;
+    const deadline = dependency.maxLagDays === undefined
+      ? ""
+      : dependency.maxLagDays
+      ? ` · ${overdue ? "überfällig, " : ""}Frist ${new Date(due!).toISOString().slice(0, 10)}`
+      : " · gehört in denselben Commit";
+    const problem = dependencyProblem(result);
+    const color = problem ? "31" : "33";
+    console.log(
+      `  ${paint(color, problem ? "✗" : "?")} ${name}   ${paint(color, state + deadline)}${reason}`,
+    );
+    const changes = base!.pending
+      ? `git diff HEAD -- ${dependency.base.replaceAll(",", " ")}`
+      : `git log -p --since=${changeLabel(dependent!)} -- ${dependency.base.replaceAll(",", " ")}`;
+    advise(
+      screenshot
+        ? "Prüfen, ob das Bild die aktuelle Oberfläche zeigt; sonst neu aufnehmen."
+        : `${dependency.dependent} an ${dependency.base} angleichen und committen.`,
+    );
+    advise(`Änderungen: ${changes}`);
+    if (ackable(result)) {
+      advise(`Nichts zu tun: docs-check.sh --ack ${dependency.dependent}`);
+    } else if (dependency.maxLagDays !== 0) {
+      advise("Nichts zu tun: erst die Basis committen, dann mit --ack quittieren.");
+    }
+  };
+
   if (options.screenshots.length) {
     console.log(
-      `${checksDocuments || requiredResults.length ? "\n" : ""}${
+      `\n${
         paint(
           "1",
-          `Screenshots: ${screenshots.results.length}${source}, höchstens ${
-            count(maxAge, "Tag", "Tage")
-          } alt`,
+          `Screenshots: ${screenshots.results.length}${source}, verglichen mit dem UI-Code`,
         )
       }\n`,
     );
     const shotWidth = Math.max(
       0,
-      ...screenshots.results.map((result) => result.path.length),
-      ...screenshots.missing.map((entry) => entry.length),
+      ...screenshots.results.map((result) => result.dependency.dependent.length),
+      ...screenshots.missing.map((entry) => entry.images.length),
     );
     for (const entry of screenshots.missing) {
       console.log(
-        `  ${paint("31", "✗")} ${entry.padEnd(shotWidth)}   ${paint("31", "trifft kein Bild")}`,
+        `  ${paint("31", "✗")} ${entry.images.padEnd(shotWidth)}   ${
+          paint("31", "trifft kein Bild")
+        }`,
       );
       console.log(
         `${" ".repeat(shotWidth + 7)}→ Eintrag in SCREENSHOTS korrigieren oder entfernen.`,
       );
     }
-    for (const { path, changed, ageDays, tooOld } of screenshots.results) {
-      const state = `geändert am ${changed.toISOString().slice(0, 10)}, vor ${
-        count(ageDays, "Tag", "Tagen")
-      }`;
-      const mark = tooOld ? paint("33", "?") : paint("32", "✓");
-      console.log(
-        `  ${mark} ${path.padEnd(shotWidth)}   ${state}${
-          tooOld ? paint("33", ` · älter als ${count(maxAge, "Tag", "Tage")}`) : ""
-        }`,
-      );
-      if (tooOld) {
-        console.log(
-          `${
-            " ".repeat(shotWidth + 7)
-          }→ Prüfen, ob das Bild die aktuelle Oberfläche zeigt; sonst neu aufnehmen.`,
-        );
-      }
+    for (const result of screenshots.results) {
+      printFollower(result, result.dependency.dependent, shotWidth, true);
     }
   }
 
-  // Abhängige Dokumente: Basis später geändert ist ein Hinweis, nach der Frist
-  // ein Problem (DEPENDS_HINT: immer nur Hinweis).
-  const dependencies = checkDependencies(project.root, options.dependencies);
-  const dependencyProblem = (result: DependencyResult) =>
-    result.missing !== undefined || (result.overdue && !result.dependency.hintOnly);
   if (dependencies.length) {
     console.log(`\n${paint("1", `Abhängige Dokumente: ${dependencies.length}${source}`)}\n`);
     const pairs = dependencies.map(({ dependency }) =>
       `${dependency.base} → ${dependency.dependent}`
     );
     const pairWidth = Math.max(0, ...pairs.map((pair) => pair.length));
-    const advise = (text: string) => console.log(`${" ".repeat(pairWidth + 7)}→ ${text}`);
-    dependencies.forEach((result, index) => {
-      const { dependency, missing, base, dependent, behind, due, overdue } = result;
-      const pair = pairs[index].padEnd(pairWidth);
-      const reason = dependency.reason ? ` · ${dependency.reason}` : "";
-      if (missing !== undefined) {
-        console.log(
-          `  ${paint("31", "✗")} ${pair}   ${
-            paint("31", `${missing} fehlt oder ist nicht in git`)
-          }`,
-        );
-        advise("Datei anlegen und committen oder Eintrag in DEPENDS korrigieren.");
-        return;
-      }
-      if (!behind) {
-        console.log(
-          `  ${paint("32", "✓")} ${pair}   nachgezogen (${changeLabel(dependent!)})${reason}`,
-        );
-        return;
-      }
-      const state = `Basis geändert ${changeLabel(base!)}, abhängig ${changeLabel(dependent!)}`;
-      const deadline = dependency.maxLagDays
-        ? `Frist ${new Date(due!).toISOString().slice(0, 10)}`
-        : "gehört in denselben Commit";
-      const problem = dependencyProblem(result);
-      const color = problem ? "31" : "33";
-      console.log(
-        `  ${paint(color, problem ? "✗" : "?")} ${pair}   ${
-          paint(color, `${state} · ${overdue ? "überfällig, " : ""}${deadline}`)
-        }${reason}`,
-      );
-      advise(
-        `${dependency.dependent} an ${dependency.base} angleichen und committen. Änderungen: ` +
-          (base!.pending
-            ? `git diff HEAD -- ${dependency.base}`
-            : `git log -p --since=${changeLabel(dependent!)} -- ${dependency.base}`),
-      );
-    });
+    dependencies.forEach((result, index) => printFollower(result, pairs[index], pairWidth, false));
   }
 
   // Umgebungsvariablen aus dem Code: je Variable, wo die Doku sie nennt.
@@ -2189,12 +2389,10 @@ function main(args: string[]): number {
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
     failedRequired + screenshots.missing.length + codeVariables.missing.length +
-    undocumented.length + dependencies.filter(dependencyProblem).length;
+    undocumented.length + followers.filter(dependencyProblem).length;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
-    screenshots.results.filter((result) => result.tooOld).length +
-    codeVariables.staleInternal.length +
-    dependencies.filter((result) => result.behind && !dependencyProblem(result)).length;
+    codeVariables.staleInternal.length + followers.filter(dependencyOpen).length;
   const verdict = problems
     ? paint("31", count(problems, "Problem", "Probleme"))
     : paint("32", "keine Probleme");

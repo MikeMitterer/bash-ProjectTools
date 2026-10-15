@@ -159,12 +159,15 @@ function fixture(): string {
       `Absolut: [da](${root}/LICENSE), [fort](/nirgends/plan.md).\n\n## Bauen und prüfen\n`,
   );
   // Screenshots: eines neu (uncommittet), eines vor 100 Tagen committet, eines
-  // von git ignoriert. Das Alter kommt aus git, nicht aus dem Dateidatum.
+  // von git ignoriert; der UI-Code, den sie zeigen, vor 50 Tagen. Verglichen
+  // wird mit dem Code laut git, nicht mit dem Tagesdatum oder Dateidatum.
   write(root, "shots/fresh.png", "png");
   write(root, "shots/old.png", "png");
   write(root, "gen/ignored.png", "png");
-  git("add", "shots/old.png");
+  write(root, "app/view.vue", "<template>Ansicht</template>\n");
+  git("add", "shots/old.png", "app/view.vue");
   commitAt(root, daysAgo(100), "shots/old.png");
+  commitAt(root, daysAgo(50), "app/view.vue");
   // Drei Hinweisboxen in einem README: Hinweis mit Zeilen und Box-Art.
   write(
     root,
@@ -264,13 +267,19 @@ const shots = run(
   "--root",
   root,
   "--screenshot",
-  "shots",
+  "app|shots|Oberfläche",
   "--screenshot",
-  "gen/*.png",
+  "app|gen/*.png",
+);
+const shotsOldFormat = run("--root", root, "--screenshot", "shots");
+const shotsAgeLimit = run(
+  "--root",
+  root,
+  "--screenshot",
+  "app|shots",
   "--max-screenshot-age",
   "60",
 );
-const shotsWithoutLimit = run("--root", root, "--screenshot", "shots");
 const codeVariables = run(
   "--root",
   root,
@@ -547,26 +556,35 @@ Deno.test("Bekannte Variablen aus der Config gelten als vorhanden", () => {
   assert(bad.code === 2 && bad.output.includes("Variablennamen"), bad.output);
 });
 
-Deno.test("Screenshots: Alter nach git, zu alte als Hinweis", () => {
-  assert(shots.output.includes("Screenshots: 2, höchstens 60 Tage alt"), shots.output);
+Deno.test("Screenshots: mit dem UI-Code verglichen, nicht mit dem Tagesdatum", () => {
+  assert(
+    shots.output.includes("Screenshots: 2, verglichen mit dem UI-Code"),
+    shots.output,
+  );
   // Das Dateidatum zählt nicht: frisch geschrieben, aber vor 100 Tagen committet.
   assert(
     Deno.statSync(`${root}/shots/old.png`).mtime!.getTime() > daysAgo(1).getTime(),
     "Dateidatum ist neu",
   );
-  assert(/✓ shots\/fresh\.png\s+geändert am .*, vor 0 Tagen/.test(shots.output), shots.output);
+  assert(lineFor(shots.output, "shots/fresh.png").includes("aktuell (uncommittet)"), shots.output);
   const old = lineFor(shots.output, "shots/old.png");
-  assert(
-    old.includes("vor 100 Tagen") && old.includes("älter als 60 Tage"),
-    `altes Bild:\n${shots.output}`,
-  );
+  assert(old.includes("?") && old.includes("Code geändert"), `altes Bild:\n${shots.output}`);
+  assert(old.includes("Oberfläche"), "Grund genannt");
   assert(shots.output.includes("neu aufnehmen"), "sagt, was zu tun ist");
+  assert(shots.output.includes("docs-check.sh --ack shots/old.png"), "nennt die Quittung");
   assert(
     lineFor(shots.output, "gen/*.png").includes("trifft kein Bild"),
     "ignorierte zählen nicht",
   );
   assert(shots.output.includes("2 Screenshots geprüft · 1 Problem · 1 Hinweis"), shots.output);
-  assert(shotsWithoutLimit.code === 2, "ohne Grenze kein Lauf: Grenzwert nur aus der Config");
+  assert(
+    shotsOldFormat.code === 2 && shotsOldFormat.output.includes("UI-CODE|BILDER"),
+    shotsOldFormat.output,
+  );
+  assert(
+    shotsAgeLimit.code === 2 && shotsAgeLimit.output.includes("entfällt"),
+    shotsAgeLimit.output,
+  );
 });
 
 Deno.test("Variablen aus dem Code müssen dokumentiert oder intern sein", () => {
@@ -714,29 +732,54 @@ function dependsFixture(): string {
   return repo;
 }
 
+/** Abhängigkeiten aus dependsFixture, wie sie die Config übergäbe. */
+const DEPENDS_ARGS = [
+  "--depends",
+  "same/base.md|same/dependent.md|0|derselbe Commit",
+  "--depends",
+  "recent/base.md|recent/dependent.md|30",
+  "--depends",
+  "late/base.md|late/dependent.md|2|Übersetzung",
+  "--depends-hint",
+  "hint/base.md|hint/dependent.md|2",
+  "--depends",
+  "zero/base.md|zero/dependent.md|0|erzeugt",
+  "--depends",
+  "both/base.md|both/dependent.md|0",
+  "--depends",
+  "dir/i18n|dir/dependent.md|30|Ordner als Basis",
+  "--depends",
+  "same/base.md|nirgends.md|3",
+];
+
+/** Wie run(), aber mit Schreibrecht für die Quittungen (--ack). */
+function runWithAck(repo: string, ...args: string[]): { output: string; code: number } {
+  const result = new Deno.Command("deno", {
+    args: [
+      "run",
+      "--allow-read",
+      "--allow-run=git",
+      `--allow-write=${Deno.realPathSync(repo)}/.docs-check.ack`,
+      SCRIPT,
+      "--root",
+      repo,
+      ...DEPENDS_ARGS,
+      ...args,
+    ],
+    stdout: "piped",
+    stderr: "piped",
+  }).outputSync();
+  const decoder = new TextDecoder();
+  return {
+    output: decoder.decode(result.stdout) + decoder.decode(result.stderr),
+    code: result.code,
+  };
+}
+
 Deno.test("Abhängige Dokumente: Zeiten aus git, Frist in Tagen", () => {
   const repo = dependsFixture();
   try {
-    const result = run(
-      "--root",
-      repo,
-      "--depends",
-      "same/base.md|same/dependent.md|0|derselbe Commit",
-      "--depends",
-      "recent/base.md|recent/dependent.md|30",
-      "--depends",
-      "late/base.md|late/dependent.md|2|Übersetzung",
-      "--depends-hint",
-      "hint/base.md|hint/dependent.md|2",
-      "--depends",
-      "zero/base.md|zero/dependent.md|0|erzeugt",
-      "--depends",
-      "both/base.md|both/dependent.md|0",
-      "--depends",
-      "dir/i18n|dir/dependent.md|30|Ordner als Basis",
-      "--depends",
-      "same/base.md|nirgends.md|3",
-    );
+    const result = run("--root", repo, ...DEPENDS_ARGS);
     const output = result.output;
     assert(output.includes("Abhängige Dokumente: 8"), output);
     assert(lineFor(output, "same/dependent.md").includes("nachgezogen"), output);
@@ -761,12 +804,59 @@ Deno.test("Abhängige Dokumente: Zeiten aus git, Frist in Tagen", () => {
     assert(zero.includes("gehört in denselben Commit"), output);
     assert(output.includes("git diff HEAD -- zero/base.md"), "uncommittete Basis: git diff");
     assert(output.includes("git log -p --since="), "committete Basis: git log");
+    assert(output.includes("docs-check.sh --ack late/dependent.md"), "nennt die Quittung");
     assert(lineFor(output, "dir/dependent.md").includes("?"), "Ordner als Basis");
     assert(lineFor(output, "nirgends.md").includes("fehlt"), output);
     assert(output.includes("8 Abhängigkeiten geprüft · 3 Probleme · 3 Hinweise"), output);
     assert(result.code === 1, "überfällige Abhängigkeit scheitert");
     const bad = run("--root", repo, "--depends", "a.md|b.md|bald");
     assert(bad.code === 2 && bad.output.includes("ganze Zahl von Tagen"), bad.output);
+  } finally {
+    Deno.removeSync(repo, { recursive: true });
+  }
+});
+
+Deno.test("Quittung: gilt bis zum nächsten Commit der Basis", () => {
+  const repo = dependsFixture();
+  try {
+    const ack = runWithAck(repo, "--ack", "late/dependent.md", "--ack", "zero/dependent.md");
+    assert(ack.code === 1, `Frist 0 lässt sich nicht quittieren:\n${ack.output}`);
+    assert(lineFor(ack.output, "late/dependent.md").includes("quittiert für Stand"), ack.output);
+    assert(lineFor(ack.output, "zero/dependent.md").includes("denselben Commit"), ack.output);
+    const file = Deno.readTextFileSync(`${repo}/.docs-check.ack`);
+    assert(/^late\/dependent\.md\|late\/base\.md\|[0-9a-f]{40}\|\d{4}-/m.test(file), file);
+    assert(!file.includes("zero/"), "abgelehnte Quittung fehlt in der Datei");
+
+    const after = run("--root", repo, ...DEPENDS_ARGS);
+    assert(lineFor(after.output, "late/dependent.md").includes("quittiert am"), after.output);
+    assert(after.output.includes("2 Probleme · 3 Hinweise"), after.output);
+
+    // Uncommittete Basis: erst committen.
+    write(repo, "recent/base.md", "# Basis 4\n");
+    const pending = runWithAck(repo, "--ack", "recent/dependent.md");
+    assert(pending.code === 1 && pending.output.includes("erst committen"), pending.output);
+
+    // Neuer Commit der Basis: Die Quittung gilt nicht mehr, der Hinweis kommt zurück.
+    write(repo, "late/base.md", "# Basis 5\n");
+    new Deno.Command("git", { args: ["-C", repo, "add", "late/base.md"] }).outputSync();
+    commitAt(repo, daysAgo(0), "late/base.md");
+    const again = run("--root", repo, ...DEPENDS_ARGS);
+    const late = lineFor(again.output, "late/dependent.md");
+    assert(late.includes("?") && !late.includes("quittiert"), again.output);
+
+    // --ack-all quittiert alles, was geht, und behält fremde Zeilen.
+    Deno.writeTextFileSync(
+      `${repo}/.docs-check.ack`,
+      `${Deno.readTextFileSync(`${repo}/.docs-check.ack`)}fremd.md|x.md|abc|2026-01-01\n`,
+    );
+    const all = runWithAck(repo, "--ack-all");
+    assert(all.output.includes("quittiert für Stand"), all.output);
+    const rewritten = Deno.readTextFileSync(`${repo}/.docs-check.ack`);
+    assert(rewritten.includes("fremd.md|x.md|abc"), "fremde Quittung bleibt");
+    assert(
+      rewritten.split("\n").filter((line) => line.startsWith("late/")).length === 1,
+      rewritten,
+    );
   } finally {
     Deno.removeSync(repo, { recursive: true });
   }

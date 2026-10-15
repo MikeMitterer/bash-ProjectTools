@@ -453,8 +453,8 @@ Je Markdown-Datei:
 - **Verbotene Begriffe** aus der Config und vergessene Platzhalter.
 
 Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
-tote Links und Anker (`LINKS_ONLY`), das **Alter der Screenshots**
-(`SCREENSHOTS`), ob **abhängige Dateien** wie Übersetzungen oder erzeugte
+tote Links und Anker (`LINKS_ONLY`), ob **Screenshots** älter sind als der
+UI-Code, den sie zeigen (`SCREENSHOTS`), ob **abhängige Dateien** wie Übersetzungen oder erzeugte
 Vorschauen ihrer Basis gefolgt sind (`DEPENDS`) und ob jede
 **Umgebungsvariable, die der Code liest**, in der Doku steht
 (`CODE_VARIABLES`).
@@ -465,6 +465,7 @@ Aufruf im Projekt-Root:
 docs-check.sh --example > .docs-check.conf.sh   # README-Dateien, docs/ und Pflichtdateien vorschlagen
 docs-check.sh --run                              # alle Dokumente aus der Config
 docs-check.sh --run README.md                    # nur diese Datei
+docs-check.sh --ack docs/images/dashboard.png    # angesehen, nichts zu tun
 ```
 
 Die Ausgabe nennt zuerst jedes geprüfte Dokument mit seinem Ergebnis und die
@@ -557,11 +558,11 @@ REQUIRED=(
     "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
 )
 
-# Optional: Screenshots, deren Alter geprüft wird, und die Grenze in Tagen.
+# Optional: Screenshots und der UI-Code, den sie zeigen, je
+# "<ui-code>|<bilder>|<grund>"; UI-Code mit Komma für mehrere Pfade.
 SCREENSHOTS=(
-    "docs/images"
+    "frontend/src/views,frontend/src/components|docs/images|Oberfläche"
 )
-MAX_SCREENSHOT_AGE_DAYS=60
 
 # Optional: abhängige Dateien, je "<basis>|<abhängig>|<tage>|<grund>".
 DEPENDS=(
@@ -585,7 +586,7 @@ INTERNAL_VARIABLES=(
 )
 ```
 
-**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `CODE_VARIABLES`):** Pfade gelten ab dem
+**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `DEPENDS`, `CODE_VARIABLES`):** Pfade gelten ab dem
 Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
 `.gitignore`:
 
@@ -642,17 +643,22 @@ Zuweisungen (`os.environ["X"] = …`) zählen nicht. Was bewusst nicht in die
 Doku gehört, steht mit Grund in `INTERNAL_VARIABLES`; liest der Code einen
 solchen Eintrag nicht mehr, gibt es einen Hinweis.
 
-**Grenzwerte (`MAX_ALERTS`, `MAX_SCREENSHOT_AGE_DAYS`)** setzt nur das
-Projekt: Ohne Eintrag prüft das Skript die Zahl der Hinweisboxen und das
-Alter der Screenshots nicht.
+**Grenzwert (`MAX_ALERTS`)** setzt nur das Projekt: Ohne Eintrag prüft das
+Skript die Zahl der Hinweisboxen nicht.
 
-**Screenshots (`SCREENSHOTS`):** Bilder (`.png`, `.jpg`, `.gif`, `.webp`,
-`.svg`), die git nicht ignoriert. Maßgeblich ist der letzte Commit, der das
-Bild ändert; ein uncommittetes Bild gilt als neu. Das Dateidatum zählt nicht,
-weil Klon, Branchwechsel, Merge und Stash es neu setzen. Ist ein Bild älter als `MAX_SCREENSHOT_AGE_DAYS` Tage, nennt
-die Ausgabe es mit Datum als Hinweis; ein Eintrag ohne Treffer ist ein
-Problem. Beide Einträge gehören zusammen, einer allein bricht mit Exit-Code 2
-ab.
+**Screenshots (`SCREENSHOTS`):** Ein Eintrag
+`"<ui-code>|<bilder>|<grund>"` verbindet Bilder (`.png`, `.jpg`, `.gif`,
+`.webp`, `.svg`, ohne von git ignorierte) mit dem Code, den sie zeigen. Der
+UI-Code ist eine Datei, ein Ordner oder ein Muster, mehrere mit Komma; welche
+Ordner das sind, legt jedes Projekt selbst fest. Hat sich der UI-Code nach
+einem Bild geändert, nennt die Ausgabe das Bild als Hinweis; die Prüfung
+scheitert daran nicht. Verglichen wird nicht mit dem Tagesdatum: Ein altes
+Bild ist richtig, solange sich die Oberfläche nicht geändert hat. Maßgeblich
+ist der letzte Commit, uncommittete Änderungen zählen als „jetzt“; das
+Dateidatum zählt nicht, weil Klon, Branchwechsel, Merge und Stash es neu
+setzen. Ein Eintrag ohne Bild ist ein Problem. Das frühere
+`MAX_SCREENSHOT_AGE_DAYS` entfällt; ist es gesetzt, bricht das Skript mit
+Exit-Code 2 ab.
 
 **Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
 an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit
@@ -679,9 +685,27 @@ Screenshots: Commit-Zeit, uncommittete und gestagte Änderungen zählen als
 | Basis jünger, Frist vorbei; bei `0` sofort | Problem, bei `DEPENDS_HINT` Hinweis |
 | Basis oder abhängige Datei fehlt | Problem |
 
-Die Meldung nennt den Befehl, der die Änderungen der Basis zeigt. Eine
-belanglose Änderung der Basis, etwa ein Tippfehler, verlangt trotzdem, die
-abhängige Datei anzufassen; dafür ist die Frist da.
+Die Meldung nennt den Befehl, der die Änderungen der Basis zeigt.
+
+**Quittung (`--ack`):** Nicht jede Änderung der Basis verlangt etwas, etwa
+ein Tippfehler im README oder eine Codeänderung, die die Oberfläche nicht
+berührt. Wer das geprüft hat, quittiert, statt die abhängige Datei sinnlos
+anzufassen:
+
+```bash
+docs-check.sh --ack docs/images/dashboard.png   # ein Bild oder eine Datei
+docs-check.sh --ack docs/images                 # alle offenen in diesem Ordner
+docs-check.sh --ack                             # alle offenen Rückstände
+```
+
+Das schreibt je Paar den letzten Commit der Basis nach `.docs-check.ack` im
+Projekt-Root (`abhängig|basis|commit|datum`); die Datei wird mitcommittet.
+Solange die Basis keinen neueren Commit hat, gilt der Rückstand als erledigt,
+auch ein überfälliges `DEPENDS`. Mit dem nächsten Commit der Basis kommt der
+Hinweis zurück, und überholte Zeilen fallen beim nächsten `--ack` weg. Nicht
+quittieren lassen sich Einträge mit Frist `0` (neu erzeugen statt
+quittieren) und uncommittete Basen (erst committen). Die Prüfung darf beim
+Quittieren nur diese eine Datei schreiben.
 
 #### Doku-Abgleich zwischen zwei Ständen (`--changes`, Versuch)
 
