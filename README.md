@@ -645,8 +645,8 @@ brauchen einen Backslash davor.
 Make-Targets oder Platzhalter nennen darf, etwa Projektregeln und Tickets.
 Geprüft werden nur Links und Bilder auf Dateien im Repo und Anker; ein toter
 Link ist ein Problem. Ein veralteter Verweis fällt so nur auf, wenn er als
-Link geschrieben ist (`[Entwicklerdoku](docs/development.md)` statt „siehe
-README, Abschnitt Setup“). Steht eine Datei auch in `DOCS`, gilt die
+Markdown-Link geschrieben ist, nicht als Fließtext wie „siehe README,
+Abschnitt Setup“. Steht eine Datei auch in `DOCS`, gilt die
 vollständige Prüfung.
 
 **Bekannte Variablen (`KNOWN_VARIABLES`):** Eine Variable in
@@ -803,7 +803,7 @@ gehört zur Umgebung des konsumierenden Projekts; der ProjectTools-Runner
 ## CLI-Themes und Abstände
 
 Die drei eigenständigen Dateien MakeLib `colours.mk`, BashLib
-`src/colors.lib.sh` und ProjectTools `src/python/projecttools/ui/colors.py` verwenden dieselbe
+`colors.lib.sh` und ProjectTools `src/python/projecttools/ui/colors.py` verwenden dieselbe
 Palette und Theme-Auswahl: `classic` (Standard), `ocean`, `earth`, `night`,
 `mono`, `sunset`, `forest`, `neon`, `shell`. Ein unbekannter Name verwendet
 `classic`. Die Auswahl kann wie bisher in der jeweiligen Datei umgestellt
