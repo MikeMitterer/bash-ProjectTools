@@ -112,7 +112,7 @@ printConfigExample() {
     cat <<EOF
 #!/usr/bin/env bash
 # Config fuer pkg-link.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
-# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/docs/tools/pkg-link.md
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von pkg-link.sh gesourct
 

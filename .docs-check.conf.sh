@@ -18,6 +18,7 @@
 # Muster. Ein Muster ohne Treffer ist ein Problem.
 DOCS=(
     "README.md"
+    "docs"
 )
 
 # Interne Doku, die nur auf tote Links, fehlende Bilder und Anker geprüft
@@ -78,9 +79,7 @@ MAX_ALERTS=""
 # Datei vorkommen, z. B. aus einer eingebundenen, nicht versionierten
 # Bibliothek. Je Eintrag optional mit "|<grund>".
 KNOWN_VARIABLES=(
-    "CONFIG_FILE|Platzhalter im Beispiel zum Sourcen einer Config"
     "NPM_ARGS|Make-Variable im Beispiel-Makefile eines Verbrauchers"
-    "LC_MESSAGES|Ordner im gettext-Katalogpfad, keine Variable"
     "DEBUG_SQL|Beispiel im Config-Format von docs-check"
     "THEME_COLOR_SUCCESS|aus MakeLib colours.mk und BashLib colors.lib.sh"
     "THEME_COLOR_WARNING|aus MakeLib colours.mk und BashLib colors.lib.sh"
@@ -93,7 +92,6 @@ KNOWN_MAKE_TARGETS=(
     "publish|Beispiel aus dem Makefile eines npm-Verbrauchers"
     "dev-up|Beispiel aus dem Makefile eines Verbrauchers mit Dev-Stack"
     "dev-down|Beispiel aus dem Makefile eines Verbrauchers mit Dev-Stack"
-    "up|Beispiel aus dem Makefile eines Verbrauchers mit Docker"
     "ZIEL|Platzhalter in der Beschreibung von KNOWN_MAKE_TARGETS"
 )
 
@@ -102,11 +100,13 @@ KNOWN_MAKE_TARGETS=(
 # liest (process.env.X, os.environ["X"], getenv("X") u. a.), muss in einem
 # Dokument aus DOCS stehen; sonst ist das ein Problem. Tests zählen nicht.
 CODE_VARIABLES=(
-    # "src"
+    "src"
 )
 
 # Vom Code gelesen, aber bewusst nicht dokumentiert, je mit "|<grund>".
 INTERNAL_VARIABLES=(
+    "PROJECTTOOLS_APPNAME|py-run reicht damit den Aufrufnamen an das Werkzeug weiter"
+    "PROJECTTOOLS_RUNNER_NAME|py-run.sh reicht damit seinen Namen an py-run.py weiter"
 )
 
 # ─── Dateien, die es geben muss ────────────────────────────────────────────────
@@ -118,7 +118,11 @@ INTERNAL_VARIABLES=(
 #   "./README.md"         mit "/": genau dort, "./" heißt Projekt-Root
 #   "./docs/**/*.md"      Muster: mindestens ein Treffer
 REQUIRED=(
-    "README.md"
+    "./README.md"
+    "./docs/development.md|im README verlinkt"
+    "./docs/python-package.md|im README verlinkt"
+    "./docs/cli-themes.md|im README verlinkt"
+    "./docs/tools/*.md|Werkzeug-Dokumente, im README verlinkt"
 )
 
 # ─── Abhängige Dateien und Screenshots ─────────────────────────────────────────
@@ -162,6 +166,16 @@ DEPENDS=(
 # Gleiches Format, auch überfällig nur ein Hinweis: für Basen, die sich oft
 # ändern, ohne dass die abhängige Datei etwas nachziehen muss.
 DEPENDS_HINT=(
+    "src/bash/repo-status.sh|docs/tools/repo-status.md|30|Werkzeug-Dokument"
+    "src/bash/docs-check.sh,src/deno/docs-check.ts|docs/tools/docs-check.md|30|Werkzeug-Dokument"
+    "src/bash/dev-ports.sh|docs/tools/dev-ports.md|30|Werkzeug-Dokument"
+    "src/bash/pkg-link.sh|docs/tools/pkg-link.md|30|Werkzeug-Dokument"
+    "src/bash/npm-publish.sh|docs/tools/npm-publish.md|30|Werkzeug-Dokument"
+    "src/python/dockerhub-readme.py|docs/tools/dockerhub-readme.md|30|Werkzeug-Dokument"
+    "src/python/changelog.py|docs/tools/changelog.md|30|Werkzeug-Dokument"
+    "src/python/py-run.py,src/bash/py-run.sh|docs/tools/py-run.md|30|Werkzeug-Dokument"
+    "src/python/projecttools/ui/colors.py|docs/cli-themes.md|30|Theme-Beschreibung"
+    "Makefile,requirements-dev.txt,scripts|docs/development.md|30|Befehle und Einrichten"
 )
 
 # Optional: Sprachfassungen mit derselben Gliederung, je

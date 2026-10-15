@@ -156,7 +156,7 @@ printConfigExample() {
     cat <<EOF
 #!/usr/bin/env bash
 # Config für docs-check.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
-# .sh-Endung fürs IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# .sh-Endung fürs IDE-Highlighting. Format-Doku: ProjectTools/docs/tools/docs-check.md
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
