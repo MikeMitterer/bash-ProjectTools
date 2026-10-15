@@ -119,7 +119,7 @@ printConfigExample() {
     cat <<EOF
 #!/usr/bin/env bash
 # Config fuer repo-status.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
-# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/docs/tools/repo-status.md
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von repo-status.sh gesourct
 

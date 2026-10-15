@@ -138,7 +138,7 @@ printConfigExample() {
     cat <<EOF
 #!/usr/bin/env bash
 # Config fuer dev-ports.sh (ProjectTools) — wird gesourced, kein Custom-Parser.
-# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/README.md
+# .sh-Endung fuers IDE-Highlighting. Format-Doku: ProjectTools/docs/tools/dev-ports.md
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von dev-ports.sh gesourct
 

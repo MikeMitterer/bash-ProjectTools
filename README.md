@@ -1,856 +1,110 @@
+<div align="center">
+
 # ProjectTools
 
-Projektbezogene Dev-Scripts, geteilt zwischen mehreren Projekten.
+**Geteilte Entwicklungs-Skripte für Projekte im DevBash-Ökosystem**
 
-Teil des DevBash-Ökosystems:
+[Werkzeuge](#werkzeuge) · [Schnellstart](#schnellstart) · [Konfiguration](#konfiguration) · [Entwicklung](docs/development.md)
+
+</div>
+
+ProjectTools sammelt Skripte, die mehrere Projekte gleich brauchen: Status
+der Repos, Doku-Prüfung, Ports des Dev-Stacks freigeben, npm-Pakete umschalten
+und veröffentlichen, Changelog und Docker-Hub-Beschreibung.
+
+Die Projekte rufen die Skripte direkt aus diesem Repo auf. Es gibt keinen
+Deploy und keine Kopie je Projekt.
 
 | Repo | Zweck | Konsum |
 |---|---|---|
-| BashLib | Wiederverwendbare Funktionen (Libs) | `source` via `BASH_LIBS` |
-| BashTools | Übergeordnete Tools, unabhängig von Dev-Projekten | Deploy nach `/usr/local/bin` |
-| **ProjectTools** | Projektbezogene Dev-Scripts | Direkt via `PROJECT_TOOLS` / `.libs`-Symlink — kein Deploy |
+| BashLib | Wiederverwendbare Bash-Funktionen | `source` über `BASH_LIBS` |
+| BashTools | Werkzeuge unabhängig von Projekten | Deploy nach `/usr/local/bin` |
+| **ProjectTools** | Projektbezogene Entwicklungs-Skripte | Direkt über `PROJECT_TOOLS` oder den Symlink `.libs/ProjectTools` |
 
-## Konsum
+## Übersicht
 
-- Env-Variable `PROJECT_TOOLS` zeigt auf `src/` (gesetzt in `~/.ci.machine.bashrc`)
-- Projekte legen zusätzlich einen Symlink `.libs/ProjectTools` an (wie `BashLib`/`BashTools`)
-- Aufruf im Projekt-Makefile: `PROJECT_TOOLS ?= $(WORKSPACE)/.libs/ProjectTools/src`
+- [Werkzeuge](#werkzeuge)
+- [Schnellstart](#schnellstart)
+- [Konfiguration](#konfiguration)
+- [Entwicklung](#entwicklung)
+- [Weitere Dokumentation](#weitere-dokumentation)
+
+## Werkzeuge
+
+Ein Projekt komponiert sein Make-Target `status` und seine übrigen Targets aus
+diesen Skripten.
+
+| Skript | Zweck | Config |
+|---|---|---|
+| [`repo-status.sh`](docs/tools/repo-status.md) | Git-Status aller Workspace-Repos als Tabelle, dazu offene Blocker-Issues | `.repo-status.conf.sh` |
+| [`docs-check.sh`](docs/tools/docs-check.md) | Nutzerdoku gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe, Screenshots, abhängige Dateien | `.docs-check.conf.sh` |
+| [`dev-ports.sh`](docs/tools/dev-ports.md) | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
+| [`pkg-link.sh`](docs/tools/pkg-link.md) | npm-Paket zwischen lokalem Repo und Registry umschalten | `.pkg-link.conf.sh` |
+| [`npm-publish.sh`](docs/tools/npm-publish.md) | npm-Paket veröffentlichen: anmelden, prüfen, hochladen, nachsehen | — |
+| [`dockerhub-readme.sh`](docs/tools/dockerhub-readme.md) | Container-README mit absoluten GitHub-Links nach Docker Hub übertragen | Optionen |
+| [`changelog.py`](docs/tools/changelog.md) | `CHANGELOG.md` aus Release-Tags und Conventional Commits | Optionen |
+| [`py-run.sh`](docs/tools/py-run.md) | Python-Werkzeuge starten, bei Bedarf mit eigener venv | — |
+
+Die Bash-Skripte liegen unter `src/bash/`, die Python-Werkzeuge unter
+`src/python/`. `dev-ports.sh` und `docs-check.sh` laufen auch ohne BashLib,
+die übrigen Bash-Skripte brauchen sie.
+
+[↑ Übersicht](#übersicht)
+
+## Schnellstart
+
+Voraussetzungen: Bash und Git; dazu je Werkzeug, was sein Dokument nennt,
+etwa Deno 2 für `docs-check.sh`.
+
+`PROJECT_TOOLS` zeigt auf `src/` dieses Repos. Ein Projekt legt zusätzlich den
+Symlink `.libs/ProjectTools` an und setzt im Makefile:
+
+```makefile
+PROJECT_TOOLS ?= $(WORKSPACE)/.libs/ProjectTools/src
+```
+
+Ein Skript braucht im Projekt-Root einmal seine Config und läuft dann direkt.
+Am Beispiel des Repo-Status:
+
+```bash
+"$PROJECT_TOOLS/bash/repo-status.sh" --example > .repo-status.conf.sh
+"$PROJECT_TOOLS/bash/repo-status.sh" --show
+```
+
+Wie die Skripte in Make-Targets eingebunden werden, steht im jeweiligen
+Werkzeug-Dokument.
+
+[↑ Übersicht](#übersicht)
 
 ## Konfiguration
 
-Scripts mit projektspezifischer Config lesen sie aus dem CWD. Der Name wird
-aus dem Script-Namen abgeleitet: `repo-status.sh` → `.repo-status.conf.sh` (die
-`.conf`-Endung ohne `.sh` wird ebenfalls akzeptiert). Die Config ist ein
-**sourcebares Bash-Snippet** (BashTools-Konvention) — das Script sourct sie mit
-`. "${CONFIG_FILE}"` und validiert danach die Pflichtwerte, statt selbst zu parsen.
-Die `.sh`-Endung sorgt fürs IDE-Syntaxhighlighting. Override via `--config <datei>`.
-Die Config gehört ins jeweilige Projekt-Repo.
+**Jedes Skript liest seine Config aus dem Arbeitsverzeichnis.** Der Name folgt
+dem Skript: `repo-status.sh` liest `.repo-status.conf.sh`; die Endung `.conf`
+ohne `.sh` gilt ebenfalls. `--config <datei>` wählt eine andere Datei.
 
-Eine Starter-Config erzeugt `repo-status.sh --example > .repo-status.conf.sh`: das
-Beispiel erkennt die vorhandenen Git-Repos automatisch (Root + Sub-Repos bis zwei
-Ebenen tief) und belegt `ISSUES_REPO` aus dem `origin`-Remote vor.
+Die Config ist ein Bash-Snippet, das das Skript sourct und danach prüft. Sie
+enthält deshalb nur Zuweisungen und gehört ins jeweilige Projekt-Repo.
 
-### `pkg-link.sh` — Paket lokal oder aus der Registry
+Eine gültige Starter-Config schreibt jedes Skript mit `--example`; danach
+einmal durchsehen. Die Schlüssel beschreibt das Werkzeug-Dokument im Abschnitt
+„Format“.
 
-Wird an einem geteilten Paket und einer App gleichzeitig gearbeitet, muss die App
-das lokale Repo sehen — sonst laesst sich vor dem Veroeffentlichen nichts pruefen.
-Danach muss sie zurueck auf die Registry-Fassung. `pkg-link.sh` schaltet zwischen
-beidem um, fuer beliebige Apps und Pakete.
+[↑ Übersicht](#übersicht)
 
-```bash
-pkg-link.sh --status                          # woher kommt gerade welches Paket?
-pkg-link.sh --link @mmit/ux-foundation        # auf das lokale Repo
-pkg-link.sh --unlink --all                    # alles zurueck auf die Registry
-pkg-link.sh --example > .pkg-link.conf.sh     # Starter-Config (erkennt Pakete)
-```
+## Entwicklung
 
-Beim Umschalten von Hand ist genau das schiefgegangen, was das Script verhindert:
-Ein `mv` folgte einem noch bestehenden Symlink und legte die Sicherung **im
-fremden Repo** ab; ein interaktives `rm -i`-Alias liess den Rueckbau still
-scheitern. Deshalb laufen alle Datei-Operationen ueber `removeSymlink()` und
-`movePathSafely()` — sie pruefen vorher, dass das Ziel in keiner Form belegt ist
-und sein Elternverzeichnis kein Symlink. `tests/bash/pkg-link.test.sh` stellt den
-Unfall nach; mit dem naiven `mv` faellt der Test.
+Einrichten aus dem Checkout, Make-Targets, Tests und Projektaufbau stehen in
+der [Entwicklerdoku](docs/development.md).
 
-Nach jedem Umschalten wird `node_modules/.vite` geleert — sonst serviert der
-Dev-Server die vorab optimierte alte Fassung weiter, und der Fehler sieht wie ein
-fehlender Export aus.
+[↑ Übersicht](#übersicht)
 
-#### Format `.pkg-link.conf.sh`
+## Weitere Dokumentation
 
-```bash
-#!/usr/bin/env bash
-# shellcheck disable=SC2034  # von pkg-link.sh gesourct
+- [Werkzeug-Dokumente](docs/tools/): Aufruf, Ablauf und Config-Format je
+  Skript, verlinkt in der Tabelle [Werkzeuge](#werkzeuge).
+- [Python-Paket für Projektumgebungen](docs/python-package.md): die Module
+  unter `projecttools` in der venv eines anderen Projekts nutzen.
+- [CLI-Themes und Abstände](docs/cli-themes.md): gemeinsame Farben und
+  Layout von MakeLib, BashLib und ProjectTools.
 
-# Verzeichnis mit package.json und node_modules, relativ zum CWD.
-PACKAGE_ROOT="dashboard"
-
-# Umschaltbare Pakete: "<paketname>=<pfad zum lokalen Repo>"
-PACKAGES=(
-    "@mmit/ux-foundation=${DEV_LOCAL}/DevWeb/Production/ux-foundation"
-)
-```
-
-### Format `.repo-status.conf.sh`
-
-```bash
-#!/usr/bin/env bash
-# shellcheck disable=SC2034  # von repo-status.sh gesourct
-
-# Optional: GitHub-Repo für die Issue-Sektion (blocker/high-priority)
-ISSUES_REPO="MikeMitterer/mein-issue-repo"
-
-# Workspace-Repos: "<pfad>:<anzeigename>" (Split am ersten ':')
-REPOS=(
-    ".:MeinProjekt (Root)"
-    "apps/backend:apps/backend"
-)
-```
-
-- `ISSUES_REPO` (optional): GitHub-Repo für die Blocker/high-priority-Issue-Sektion;
-  leer/ungesetzt → keine Issue-Sektion
-- `REPOS` (Pflicht): Bash-Array aus `"<pfad>:<anzeigename>"`-Einträgen, aufgeteilt
-  am **ersten** `:` (der Anzeigename darf `:` enthalten, der Pfad nicht)
-- Fehlt die Datei oder ist `REPOS` leer/ungesetzt → Fehlermeldung mit
-  Beispiel-Config, Exit 1
-- Die Datei wird gesourced: nur Variablen-/Array-Zuweisungen hineinschreiben,
-  keine Seiteneffekte
-
-## Tools
-
-Diese Tabelle ist das Inventar: ein Projekt komponiert `make status` aus den
-gewünschten Scripten. Wie ein `status`-Target verdrahtet wird (`## `-Target,
-Aufruf `$(PROJECT_TOOLS)/bash/<check>.sh --show`): siehe `makefile-conventions`-Skill,
-Abschnitt „Status-Target (ProjectTools-Scripte)".
-
-| Script | Zweck | Config |
-|---|---|---|
-| `src/bash/repo-status.sh` | Git-Status aller Workspace-Repos als Tabelle + Blocker-Issues | `.repo-status.conf.sh` |
-| `src/bash/dockerhub-readme.sh` | README mit absoluten GitHub-Links nach Docker Hub übertragen | CLI-Optionen |
-| `src/bash/npm-publish.sh` | Ein npm-Paket veröffentlichen — anmelden, prüfen, hochladen, nachsehen | — |
-| `src/bash/dev-ports.sh` | Ports des Dev-Stacks anzeigen und samt Prozessen freigeben | `.dev-ports.conf.sh` |
-| `src/bash/docs-check.sh` | Nutzerdokumente gegen das Projekt prüfen: Links, Anker, Befehle, Variablen, verbotene Begriffe, Screenshots gegen UI-Code, abhängige Dateien | `.docs-check.conf.sh` |
-
-Nicht jedes Script gehört in `make status`. `npm-publish.sh` ersetzt das blosse
-`npm publish` überall dort, wo veröffentlicht wird:
-
-```makefile
-publish: ##R Paket veröffentlichen  [CONFIRM=yes]
-	@test "$(CONFIRM)" = "yes" || \
-	  (echo "${ORANGE}Sicherheitscheck: make $@ CONFIRM=yes${NC}" && exit 1)
-	@bash $(PROJECT_TOOLS)/bash/npm-publish.sh --publish $(NPM_ARGS)
-```
-
-Es räumt drei Fallen ab, die man sonst je einmal selbst sucht:
-
-1. **Niemand angemeldet.** Die Registry antwortet bei einem **privaten** Paket
-   mit `404 Not Found` statt `401` — sie verrät dessen Existenz nicht. Die
-   Meldung zeigt dann auf den Paketnamen, und man prüft Scope, Schreibweise und
-   `publishConfig`, während bloß der Token abgelaufen ist.
-2. **Die Version liegt schon oben.** Wird vorher beantwortet und ungecacht
-   gelesen, statt hinterher aus einer Fehlermeldung erraten.
-3. **`409 Conflict — Failed to save packument`.** Registry-seitig und meist
-   vorübergehend; der mitgelieferte Erklärungstext passt fast nie. Das Script
-   sieht nach, ob das Paket trotz des Fehlers oben liegt, und versucht es sonst
-   erneut.
-
-`--publish` ist der ganze Vorgang; `--ensure` stellt nur die Anmeldung sicher
-(private Abhängigkeiten installieren, CI); `--status` berichtet nur und taugt
-dort, wo kein Browser aufgehen darf. Das Registry ermittelt es selbst:
-`publishConfig.registry` schlägt die Scope-Einstellung, diese die globale.
-
-### Die Grenzen, die der Vertrag ausdrücklich zieht
-
-Sie stehen hier, weil jede von ihnen einmal eine echte Fehlfunktion war:
-
-| Grenze | Warum |
-|---|---|
-| **stdout des Uploads bleibt unangetastet** | npm bricht seine OTP-Abfrage ab, sobald `stdin` **oder** `stdout` kein TTY ist (npm 11, `lib/utils/auth.js:10`). Ein Einfangen der Ausgabe schaltet die Zwei-Faktor-Anmeldung stumm ab — und eine `tee`-Pipeline genauso, obwohl die Ausgabe dabei sichtbar bleibt. Eingefangen wird nur stderr; dort stehen npms Fehlerzeilen ohnehin. |
-| **Wiederholt wird nur bei exaktem `E409`** | Die blosse Zeichenfolge `409` steht auch in einem Paketnamen oder einer URL. Einen eigenen Prozess-Exit-Code je HTTP-Status gibt es nicht; npm endet bei jedem HTTP-Fehler mit `1`. |
-| **„nicht vorhanden" ≠ „nicht feststellbar"** | Drei Dinge sind **kein** sicheres „gibt es nicht": ein Ausfall der Abfrage, eine unlesbare Antwort und ein `E404`. Letzteres heisst bei einem privaten Paket „gibt es nicht **oder** du darfst nicht" — dieselbe Verschleierung wie oben. In allen drei Fällen wird weder „ist noch frei" noch „liegt nicht oben" behauptet, und `--status` wird **nicht grün**. |
-| **Ein Ziel für alle Schritte** | Ein `--registry` unter den durchgereichten Argumenten verschöbe sonst nur den Upload, während Anmeldung, Vor- und Nachprüfung die alte Registry befragen — die Auskunft gälte dann einem anderen Paket. Es wird deshalb übernommen. |
-| **Durchgereicht wird eine Positivliste** | `--otp`, `--tag`, `--access`, `--registry`, `--provenance`/`--no-provenance` — beide Schreibweisen. Alles andere wird abgelehnt. Eine Sperrliste wäre bei jedem npm-Update potenziell unvollständig, und was durchrutscht, fällt mit einer **falschen Erfolgsmeldung** aus: `npm publish ./anderes-paket` lud ein anderes Paket hoch als das geprüfte, `--dry-run` gar keines — beide Male meldete der Wrapper das geprüfte als veröffentlicht. Was hier nicht steht, gehört in einen direkten `npm publish`-Aufruf, wo niemand etwas Falsches verspricht. |
-| **Ein Wert darf keine Option sein** | Sonst schluckt eine Wertoption das verbotene Token: `--otp --dry-run` kam durch, und npm liest daraus `otp=--dry-run` und `dry-run=false` — aus dem gewollten Trockenlauf wird ein **echter Upload**. Belegt mit `npm config get` unter npm 11.19.0. Leere `--option=`-Werte werden ebenso abgelehnt. |
-| **Keine Wiederholung bei Lifecycle-Scripten** | Jeder neue Versuch startet `npm publish` komplett neu, samt `prepublishOnly`, `prepack`, `prepare`, `postpack`, `publish` und `postpublish`. Dass die Registry eine Version nicht überschreibt, macht diese **lokalen** Hooks nicht idempotent. Erklärt die `package.json` einen davon, bricht das Script nach dem ersten Versuch ab und nennt ihn. |
-
-Was die Positivliste erlaubt, geht unverändert an `npm publish` weiter —
-deshalb das `$(NPM_ARGS)` oben:
-
-```bash
-make publish CONFIRM=yes NPM_ARGS=--otp=123456
-```
-
-Geprüft wird das alles von `tests/bash/npm-publish.test.sh --run`: Das Script
-läuft dort als Prozess über seinen öffentlichen Aufruf gegen eine
-`npm`-Attrappe. Jede Grenze hat ihren eigenen Fall, und jeder wurde
-gegen einen Mutanten geprüft, der die Korrektur zurückdreht.
-
-Die TTY-Zusage läuft dabei unter einem **echten PTY** (`script -q /dev/null`,
-mit Rückfall auf die GNU-Form). Das ist kein Selbstzweck: Im umgeleiteten
-Testharness sieht die Attrappe grundsätzlich kein TTY, egal was das Script
-tut — die schwächere Frage „kommt npms Ausgabe beim Aufrufer an?" beantwortet
-auch eine `tee`-Pipeline mit ja, während npm trotzdem kein TTY sähe. Genau
-dieser Mutant fällt unter dem PTY auf und nur dort. Geprüft werden dabei
-**beide** Deskriptoren (`-t 0 && -t 1`): npm sieht auch dann kein TTY, wenn nur
-stdin abgeklemmt ist.
-
-Pythons `pty.spawn` wäre der naheliegende Weg gewesen und liefert auch ein
-korrektes PTY — kehrt auf macOS aber nach dem Kindprozess nicht aus seiner
-Kopierschleife zurück und hängt den Testlauf auf.
-
-
-### `dockerhub-readme.sh` — README nach Docker Hub übertragen
-
-`src/bash/dockerhub-readme.sh` ist ein relativer Symlink auf `../python/py-run.py`.
-Der gemeinsame Runner erkennt das Werkzeug am Aufrufnamen und richtet
-eine eigene Werkzeug-`.venv` ein, bevor er
-`src/python/dockerhub-readme.py` startet. Das Python-Script konvertiert relative Markdown-Bild- und
-Dokumentlinks in absolute GitHub-URLs und aktualisiert die Repository-Übersicht.
-Python 3.11+ und Pandoc müssen vorhanden sein. Der gemeinsame Python-Runner legt
-`${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/dockerhub-readme/.venv`
-bei Bedarf an und installiert fehlende Pakete gemäß
-`src/python/dockerhub-readme.requirements.txt`; fehlendes pip ergänzt er über
-ensurepip. Passende Umgebungen werden ohne Installation wiederverwendet.
-`PYTHON_BOOTSTRAP` überschreibt die automatische Auswahl eines installierten
-Python ab 3.11. Die Projekt-`.venv` bleibt unberührt; Symlinks am Werkzeug-
-verzeichnis oder an dessen `.venv` sind gesperrt. Ohne Argumente
-erscheint die Hilfe, ohne die Umgebung zu verändern.
-
-```bash
-./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
-  --preview
-./.libs/ProjectTools/src/bash/dockerhub-readme.sh \
-  --publish
-```
-
-`--project-dir` wählt das Verbraucherprojekt (Vorgabe: Arbeitsverzeichnis),
-`--readme` dessen Quelldatei (Vorgabe: `docker/README.md`). `--ref` nennt einen bereits veröffentlichten GitHub-Branch oder Commit;
-Vorgabe ist `master`.
-`--github-repository owner/repository` überschreibt die Ermittlung aus `origin`.
-Die Quelle ist eine eigene Beschreibung für Container-Nutzer. Fehlt sie, bricht
-das Script ab; es fällt nicht auf das Projekt-README zurück. Für eine andere
-Quelle `--readme` verwenden. Bilder etwa mit `../images/example.png` relativ
-zu `docker/README.md` verlinken; sie werden aus dem GitHub-Repository geladen.
-Auch Links aus READMEs in Unterverzeichnissen werden relativ zur Quelldatei
-aufgelöst. Raw-HTML-Links werden nicht umgeschrieben; dafür absolute URLs verwenden.
-
-Das Docker-Hub-Ziel wird aus `DOCKERHUB_REPOSITORY`, sonst aus `IMAGE_NAME`
-(Umgebung/Makefile) und `NAMESPACE` + `NAME` in `docker/build.sh` ermittelt.
-Es werden nur literale Zuweisungen gelesen; kein Buildscript wird ausgeführt.
-Widersprüchliche oder fehlende Werte erfordern `--repository namespace/name`.
-Dieser explizite Parameter hat Vorrang. Tags und Docker-Hub-Registrypräfixe
-werden entfernt; fremde Registries werden abgewiesen.
-
-Die Vorschau schreibt `docker/preview/README.md` ins Verbraucherprojekt;
-`--output` überschreibt den Pfad. Sie benötigt keinen Docker-Hub-Token; die erstmalige Paketinstallation kann
-Netz benötigen.
-Der Upload liest den Token aus `--token-file`, sonst `DOCKER_PW_FILE`, sonst
-`${DOCKER_CONFIG:-$HOME/.docker}/dockerhub.sec`. Der Docker-Hub-Benutzer ist
-standardmäßig der Namespace; für Organisationen `--username` angeben.
-Ein Personal Access Token braucht die Berechtigung zum Ändern der Beschreibung
-(Read, Write, Delete). Zugangsdaten werden nur an Docker Hub gesendet, nicht
-protokolliert oder als Prozessargumente weitergereicht.
-
-`--description` setzt optional die Kurzbeschreibung. Sonst bleibt sie erhalten.
-Nach dem Upload liest das Script die gespeicherten Werte zur Kontrolle zurück.
-Nach erfolgreicher Kontrolle zeigt es die vollständige Repository-URL,
-z. B. `https://hub.docker.com/r/mangolila/stockinfo`, zum Öffnen im Browser.
-Vor venv/pip prüft das Script das lesbare README und bei `--publish` zusätzlich
-die lesbare, nicht leere Token-Datei. Gültigkeit und Schreibrechte bestätigt
-erst Docker Hub beim Auth-/PATCH-Aufruf. Die konvertierte Fassung darf höchstens 25.000 UTF-8-Bytes umfassen. Bei
-Überschreitung endet schon die Vorschau mit Fehler; es wird nichts abgeschnitten.
-Markdown wird mit Pandoc neu formatiert; das Quell-README bleibt unverändert.
-
-Ein Verbraucher ruft das Script erst nach erfolgreichem Docker-Hub-Image-Push
-auf und übernimmt den Exit-Code. Andere Registries überspringen den Aufruf.
-`DOCKER_README_AFTER_PUSH=1` ergänzt bei einem Uploadfehler den Hinweis, dass
-das Image bereits veröffentlicht wurde. Der Upload kann separat wiederholt werden.
-
-Tests: `<verbraucher>/.venv/bin/python -m pytest tests/python/`.
-Die Bootstrap-Tests installieren in echte temporäre venvs. Für Offline-Tests
-vorher Wheels herunterladen und `PIP_NO_INDEX=1 PIP_FIND_LINKS=<wheel-ordner>` setzen.
-Deutscher gettext-Katalog: `src/python/locales/de/LC_MESSAGES/dockerhub_readme.po`;
-nach Textänderungen mit `msgfmt <datei.po> -o <datei.mo>` neu übersetzen.
-
-
-### `changelog.py` — Release-Historie aus Git
-
-Der gemeinsame Generator schreibt `CHANGELOG.md` aus den Release-Tags und
-Conventional Commits des aufrufenden Repositorys. Er braucht Git und
-Python 3.9+, verwendet ausschließlich die Standardbibliothek und startet direkt.
-Es gibt keinen Bash-Wrapper, keine Paketinstallation und keine eigene venv.
-Das ist Mikes ausdrückliche Ausnahme von der Python-Bootstrap-Vorgabe für
-dieses Werkzeug (2026-09-27). Ohne Argumente oder mit `--help` erscheint nur Hilfe.
-
-```bash
-python3 "${PROJECT_TOOLS}/python/changelog.py" --help
-python3 "${PROJECT_TOOLS}/python/changelog.py" --dry-run
-python3 "${PROJECT_TOOLS}/python/changelog.py" --generate
-python3 "${PROJECT_TOOLS}/python/changelog.py" --publish
-```
-
-`-g/--generate` schreibt die Datei, `-n/--dry-run` zeigt sie nur,
-`-p/--publish` schreibt, committet ausschließlich diese Datei und pusht den
-aktuellen Branch über dessen Upstream. `-o/--output` wählt eine andere Datei
-innerhalb des Arbeitsbaums. Ein wiederholter Publish pusht erneut, erzeugt
-aber bei identischem Inhalt keinen neuen Commit. Fremde Änderungen an
-versionierten Dateien und ein gefüllter Git-Index verhindern Publish.
-Die generierte Ausgabedatei darf dabei bereits lokal geändert sein.
-
-Die vollständige Git-Historie muss lokal vorhanden sein; fehlende Tags bei
-Bedarf mit `git fetch --tags` holen. Verarbeitet werden SemVer-Tags, auch mit
-Build-Metadaten, auf der First-Parent-Historie des aktuellen Branches.
-Feature-Branch-Tags werden nicht zu Releases des Hauptbranches. Die Commits
-eingemergter Branches erscheinen im nächsten Hauptbranch-Release genau einmal.
-Noch nicht getaggte Änderungen fehlen bewusst.
-
-Gruppen: inkompatible Änderungen, Funktionen, Fehlerkorrekturen,
-Geschwindigkeit, weitere Änderungen und Dokumentation. Interne Scopes
-`tickets`, `activity`, `lessons`, `changelog` sowie normale `chore`, `test`,
-`ci` und Merge-Commits entfallen. Reine Änderungen unter `_tickets/` oder
-in Agenten-Regeldateien entfallen auch bei anderen Scopes. Nicht konventionelle
-Commit-Titel werden nicht interpretiert. Gemischte Commits mit Änderungen an
-Produktanleitungen können erscheinen; der Generator bewertet Texte nicht
-semantisch. Annotierte Tag-Nachrichten liefern die Release-Kurztexte;
-leichtgewichtige Tags erhalten keinen erfundenen Kurztext. Manuelle Änderungen
-an der generierten Datei werden überschrieben. CLI und Überschriften verwenden
-gettext (Deutsch/Englisch); `LANGUAGE=en` erzeugt ein englisches Dokument,
-die ursprünglichen Commit- und Tag-Texte bleiben unverändert.
-
-Die Hilfe verwendet die native Parser-Optionsliste mit festen, großzügigen
-Spalten. Optionen und Abschnittstitel sind hellblau, Platzhalter wie `OUTPUT`
-gelb und Beispiele grün. Erfolgsmeldungen sind grün, Fehler rot, jeweils mit
-Symbol. Die Farben entsprechen der BashLib-Palette; ein Bash-Start ist dafür
-nicht nötig. `NO_COLOR`, `TERM=dumb` und umgeleitete Ausgaben deaktivieren Farben.
-
-Die Einbindung erfolgt direkt im konsumierenden Makefile: nach erfolgreichem
-`semVerBump` das Script mit `--publish` aufrufen. Die BashLib bleibt unverändert.
-Der Changelog-Commit liegt damit nach dem Release-Tag. Scheitert dieser Schritt,
-bleibt das Release bestehen; nur `--publish` wiederholen, nicht erneut bumpen.
-Ein abgebrochener Commit kann einen gestagten Changelog hinterlassen: Ursache
-beheben und den Commit gezielt abschließen, bevor Publish erneut startet.
-
-Prüfung: `python -m unittest discover -s tests/python -p test_changelog.py -v`
-aus einer aktivierten Testumgebung. Die Tests verwenden temporäre
-Git-Repositories und lokale Remotes, ohne Netzwerk oder echte Releases.
-
-### `py-run.sh` — Python-Werkzeuge starten
-
-```bash
-./src/bash/py-run.sh --help
-./src/bash/py-run.sh --list
-./src/bash/py-run.sh --run changelog --dry-run
-./src/bash/changelog.sh --dry-run
-./src/bash/py-run.sh --run dockerhub-readme --preview
-```
-
-`-l`/`--list` findet direkt ausführbare Python-Skripte unter `src/python/`,
-ohne sie zu importieren. Bibliotheksmodule und der Runner selbst fehlen in der
-Liste. `-r`/`--run SCRIPT` übernimmt Namen mit oder ohne `.py`; alle folgenden
-Argumente, auch `--help`, gehören dem ausgewählten Skript. Unbekannte Skripte
-und Runner-Argumente enden mit Status 2. Der Exit-Code des Werkzeugs bleibt erhalten.
-Ohne Argumente erscheint die Hilfe. Hilfe und Liste installieren nichts.
-
-Benannte Symlinks auf `../python/py-run.py` sind ebenfalls möglich, z.B.
-`src/bash/dockerhub-readme.sh` und `src/bash/changelog.sh`. Der Runner leitet den Werkzeugnamen aus dem
-Symlinknamen ab (`.sh` ist optional) und reicht alle Argumente unverändert an
-das Werkzeug weiter. Ein Symlink selbst kann keine Argumente enthalten.
-Die bestehenden Aufrufe `dockerhub-readme.sh --help` und `--preview` bleiben
-gültig. Den Link direkt ausführen, nicht mit `bash dockerhub-readme.sh`:
-Sein Ziel ist jetzt ein ausführbares Python-Skript.
-
-
-Der Runner und Changelog funktionieren mit Python ab 3.9, auch beim direkten
-Aufruf `python3 src/python/py-run.py -r changelog`. Reine Standardbibliothek
-benötigt keine venv. Erst die Einrichtung von Paketabhängigkeiten verlangt
-Python ab 3.11. Der Python-Runner sucht dafür automatisch einen passenden
-installierten Interpreter im PATH. Das gilt auch beim direkten `.py`-Aufruf
-unter Python 3.9. `PYTHON_BOOTSTRAP` überschreibt die Auswahl für die
-Paketumgebung; der Bash-Einstieg verwendet ihn auch zum Start des Runners.
-Die Werkzeug-venv wird bei Bedarf automatisch angelegt, mit Paketen bestückt
-und wiederverwendet. Nur Python selbst muss bereits installiert sein. Benötigt ein Werkzeug Pakete, stehen sie einmalig in der benachbarten
-`<name>.requirements.txt`. Der Runner verwaltet dafür ausschließlich
-`${XDG_CACHE_HOME:-$HOME/.cache}/projecttools/<name>/.venv`; die Projektumgebung
-bleibt unberührt. Erstinstallation kann Netzwerk benötigen. Wiederholte Aufrufe
-verwenden die fertige Umgebung. Geänderte Requirements lösen eine Installation
-aus; fehlende exakt gepinnte Pakete und defekte Abhängigkeiten werden erkannt.
-
-Neue paketabhängige Skripte halten Hilfe und Parser frei von optionalen Imports.
-Eine Funktion `prepare_cli(arguments)` prüft bei Bedarf Argumente, lokale Dateien
-und externe Programme, bevor der Runner die venv anlegt. Erwartete Fehler werden
-vom Werkzeug übersetzt gemeldet und beenden mit nonzero. Diese Funktion führt
-keine Fachaktion aus. Für weitere Werkzeuge wird kein Bootstrap kopiert.
-
-Der bisherige `dockerhub-readme.sh` bleibt als kompatibler Alias erhalten.
-Seine gesamte Umgebungseinrichtung liegt im gemeinsamen Runner.
-
-### `dev-ports.sh` — Ports des Dev-Stacks freigeben
-
-Stürzt overmind oder eine App ab, belegen übrig gebliebene Prozesse die Ports
-weiter, etwa ein uvicorn-Reloader oder ein Vite-Prozess. `make dev-down`
-erreicht sie dann nicht mehr, und der nächste `make dev-up` scheitert mit
-„address in use“. `dev-ports.sh` zeigt, wer die Ports belegt, und beendet
-diese Prozesse samt Kindprozessen.
-
-Aufruf im Projekt-Root:
-
-```bash
-dev-ports.sh --example > .dev-ports.conf.sh   # Ports aus Procfile.dev vorschlagen
-dev-ports.sh --status                          # ob und von wem die Ports belegt sind
-dev-ports.sh --kill --dry-run                  # zeigen, was beendet würde
-dev-ports.sh --kill                            # beenden und prüfen, dass die Ports frei sind
-dev-ports.sh --kill --port 8000                # nur ein Port, ohne Config
-```
-
-So geht `--kill` vor:
-
-1. Übrig gebliebene overmind- und tmux-Prozesse **dieses** Projekts beenden
-   und eine verwaiste `.overmind.sock` entfernen. Sonst meldet der nächste
-   `make dev-up` „Overmind is already running“. overmind anderer Projekte
-   bleibt unberührt. Verwaist ist die Datei, wenn niemand eine Verbindung
-   annimmt; ein lebender Socket bleibt liegen. Die Prüfung braucht `python3`;
-   fehlt es, bleibt die Datei vorsichtshalber liegen.
-2. Für jeden Port die lauschenden Prozesse suchen (`lsof`).
-3. Nur eigene Prozesse beenden, deren Arbeitsverzeichnis im Projekt liegt.
-   Andere, etwa Docker bei `make up` oder eine App aus einem anderen Projekt,
-   werden gemeldet und laufen weiter. `--any-dir` hebt die Projektgrenze für
-   Ports auf, Prozesse anderer Benutzer bleiben immer unberührt.
-4. Prozesse und Kindprozesse erhalten SIGTERM, nach `--timeout` Sekunden
-   (Standard 5) SIGKILL.
-5. Danach muss jeder Port frei sein, sonst endet das Script mit Exit 1.
-
-`dev-ports.sh` läuft auch ohne BashLib, dann mit einfachen Farben statt des
-gemeinsamen Themes. So funktioniert `make dev-down` auch in einem frischen
-Klon eines öffentlichen Projekts, denn BashLib ist privat.
-
-`--kill` lässt sich beliebig oft aufrufen, auch gleichzeitig. Ist nichts mehr
-zu tun, meldet es die Ports als frei und endet mit Exit 0.
-
-Einbindung in `make dev-down`:
-
-```make
-dev-down: ## Dev-Stack stoppen und Ports freigeben
-	-@overmind quit 2>/dev/null || true
-	@"$(PROJECT_TOOLS)/bash/dev-ports.sh" --kill
-```
-
-Ein `pkill -f overmind` gehört nicht dazu: Es beendet overmind in allen
-Projekten.
-
-Format `.dev-ports.conf.sh`:
-
-```bash
-#!/usr/bin/env bash
-# shellcheck disable=SC2034  # von dev-ports.sh gesourct
-PORTS=(5173 8000)
-```
-
-`--example` findet nur Ports, die im `Procfile.dev` als `--port N` stehen.
-Ports aus App-Konfigurationen, etwa Vite, trägt man von Hand nach.
-
-Tests: `tests/bash/dev-ports.test.sh --run` startet echte Server auf freien
-Ports und prüft unter anderem, dass Prozesse und overmind-Reste außerhalb des
-Projekts nicht beendet werden und dass mehrfache, auch gleichzeitige Aufrufe
-gelingen.
-
-### `docs-check.sh` — Dokumentation gegen das Projekt prüfen
-
-Dokumentation veraltet still: Ein Target wird umbenannt, ein Ordner zieht um,
-eine interne Kennung soll nicht mehr in der Nutzerdoku stehen. Eine Regel in
-`AGENTS.md` hilft nur, wenn gerade jemand die betroffene Datei liest.
-`docs-check.sh` prüft alle Nutzerdokumente bei jedem Lauf, etwa als Teil von
-`make test`.
-
-Je Markdown-Datei:
-
-- **Links und Bilder** auf Dateien im Repo, Anker im Dokument und Anker, auf
-  die andere Dateien verlinken.
-- **Befehle in Code-Formatierung** gegen das Projekt: `make` (je Verzeichnis,
-  mit Einbindungen), `npm run`, `deno task`, `uv`/`poetry run`, `cargo run`,
-  jeweils in dem Verzeichnis, in dem der Befehl läuft (`cd` im Codeblock,
-  `make -C`, `npm --prefix`).
-- **Variablen und Repo-Pfade** in Code-Formatierung.
-- **Verbotene Begriffe** aus der Config und vergessene Platzhalter.
-
-Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
-tote Links und Anker (`LINKS_ONLY`), ob **Screenshots** älter sind als der
-UI-Code, den sie zeigen (`SCREENSHOTS`), ob **abhängige Dateien** wie Übersetzungen oder erzeugte
-Vorschauen ihrer Basis gefolgt sind (`DEPENDS`), ob **Sprachfassungen**
-gleich gegliedert sind und dieselben Links und denselben Code enthalten
-(`TRANSLATIONS`) und ob jede
-**Umgebungsvariable, die der Code liest**, in der Doku steht
-(`CODE_VARIABLES`).
-
-Aufruf im Projekt-Root:
-
-```bash
-docs-check.sh --example > .docs-check.conf.sh   # README-Dateien, docs/ und Pflichtdateien vorschlagen
-docs-check.sh --run                              # alle Dokumente aus der Config
-docs-check.sh --run README.md                    # nur diese Datei
-docs-check.sh --ack docs/images/dashboard.png    # angesehen, nichts zu tun
-```
-
-Die Ausgabe nennt zuerst jedes geprüfte Dokument mit seinem Ergebnis und die
-ausgenommenen Pfade, dann je Befund Kategorie, Zeilen, was nicht stimmt und
-was zu tun ist:
-
-```text
-Dokumentprüfung: 4 Dokumente laut .docs-check.conf.sh
-Ausgenommen: docs/superpowers, docs/README.template.md
-
-  ? README.md                                1 Hinweis
-  ✓ docker/README.md                         in Ordnung
-  ✓ unraid/README.md                         in Ordnung
-  ✓ docs/stockinfo-integration-proposal.md   in Ordnung
-
-README.md
-  Hinweis    Zeilen 27, 66, 115, 136 · 4 farbige Hinweisboxen ([!IMPORTANT], [!NOTE], [!WARNING], [!TIP]); die Config erlaubt höchstens 2 (MAX_ALERTS).
-             → Nur die wirklich wichtigen behalten oder MAX_ALERTS in der Config anpassen.
-
-Ergebnis: 4 Dokumente geprüft · keine Probleme · 1 Hinweis zum Ansehen
-Hinweise sind keine Fehler, die Prüfung ist bestanden. Ob du etwas änderst, entscheidest du.
-```
-
-| Kategorie | Bedeutung |
-|---|---|
-| **Problem** | Stimmt nicht mit dem Projekt überein; Exit-Code 1 |
-| **Hinweis** | Kann stimmen, ein Mensch entscheidet; kein Fehler, Exit-Code bleibt 0 |
-| **Ungeprüft** | Befehle eines Ökosystems, das das Skript nicht prüft (Go, Maven, Gradle u. a.) |
-| **Info** | Nur mit `--verbose`: Zahlenangaben und externe URLs zum Gegenprüfen |
-
-Die Prüfung macht `src/deno/docs-check.ts` (Deno 2), nur lesend, nur `git`,
-ohne Netz. Projektfakten liest sie nur aus versionierten Dateien und nie aus
-Dateien mit Zugangsdaten (`.env` außer Beispieldateien, Schlüssel, Secrets,
-Token u. a.), auch nicht über Makefile-Einbindungen. Agenten rufen sie auch
-direkt auf, etwa der Skill `docs-conventions` für einen Entwurf an anderer
-Stelle:
-
-```bash
-deno run --allow-read --allow-run=git src/deno/docs-check.ts --as README.md /pfad/zum/entwurf.md
-```
-
-#### Format `.docs-check.conf.sh`
-
-```bash
-#!/usr/bin/env bash
-# shellcheck disable=SC2034  # von docs-check.sh gesourct
-
-# ─── Welche Dokumente geprüft werden ───────────────────────────────────────────
-
-# Inhaltlich zu prüfende Dokumente: Datei, Ordner (alle *.md darin) oder Muster.
-DOCS=(
-    "README.md"
-    "docker/README.md"
-    "docs"
-    "**/fixtures/**/README.md"
-)
-
-# Nur auf Links, Bilder und Anker geprüft (interne Doku).
-LINKS_ONLY=(
-    "AGENTS.md"
-    "_tickets/README.md"
-)
-
-# Aus DOCS und LINKS_ONLY ausgenommen: Datei, Ordner samt Inhalt oder Muster.
-EXCLUDE=(
-    "docs/superpowers"
-    "docs/**/draft-*.md"
-)
-
-# ─── Was in den Dokumenten stehen darf ─────────────────────────────────────────
-
-# Text oder regulärer Ausdruck, je optional mit "|<grund>".
-# Ein Eintrag je Zusammenhang, damit jeder seinen eigenen Grund hat.
-FORBIDDEN=(
-    # Interne Umgebungsvariablen, in jeder Schreibweise
-    "/\bP(U|G)ID\b/i|interne Variablen, nicht in Nutzerdoku"
-    # Standardnutzer als Zahl und als Name
-    "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
-)
-
-# Optional: höchstens so viele farbige Hinweisboxen je Dokument.
-MAX_ALERTS=2
-
-# ─── Variablen zwischen Doku und Code ──────────────────────────────────────────
-
-# Variablen, die keine versionierte Datei nennt, je optional mit "|<grund>".
-KNOWN_VARIABLES=(
-    "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
-)
-
-# Make-Targets, die kein Makefile im Projekt enthält, je optional mit "|<grund>".
-KNOWN_MAKE_TARGETS=(
-    "dev-up|aus MakeLib, über .libs/MakeLib eingebunden"
-)
-
-# Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
-CODE_VARIABLES=(
-    "api/src"
-    "docker"
-)
-
-# Vom Code gelesen, bewusst nicht dokumentiert, je mit "|<grund>".
-INTERNAL_VARIABLES=(
-    "DEBUG_SQL|nur für die Fehlersuche im Code"
-)
-
-# ─── Dateien, die es geben muss ────────────────────────────────────────────────
-
-# Dateien, die es geben muss, je optional mit "|<grund>".
-REQUIRED=(
-    "LICENSE"                                # ohne "/": irgendwo im Projekt
-    "./README.md"                            # mit "/": genau dort
-    "docs/user-guide.md|im README verlinkt"
-    "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
-)
-
-# ─── Abhängige Dateien und Screenshots ─────────────────────────────────────────
-
-# Optional: Screenshots und der UI-Code, den sie zeigen, je
-# "<ui-code>|<bilder>|<grund>"; UI-Code mit Komma für mehrere Pfade.
-SCREENSHOTS=(
-    "frontend/src/views,frontend/src/components|docs/images|Oberfläche"
-)
-
-# Optional: abhängige Dateien, je "<basis>|<abhängig>|<tage>|<grund>".
-DEPENDS=(
-    "docker/README.md|docker/preview/README.md|0|erzeugt"
-    "README.md|README.de.md|3|deutsche Fassung"
-)
-# Gleiches Format, auch überfällig nur ein Hinweis.
-DEPENDS_HINT=(
-    "frontend/src/i18n|docs/user-guide.md|30|Bedienelemente im Wortlaut der App"
-)
-
-# Optional: Sprachfassungen, je "<original>|<übersetzung>|<grund>".
-TRANSLATIONS=(
-    "README.md|README.de.md|deutsche Fassung"
-)
-```
-
-**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `DEPENDS`, `CODE_VARIABLES`):** Pfade gelten ab dem
-Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
-`.gitignore`:
-
-| Zeichen | Bedeutung | Beispiel |
-|---|---|---|
-| `*` | beliebige Zeichen innerhalb eines Ordners | `docs/*.md` |
-| `**` | beliebig viele Ordner | `docs/**/*.md`, `**/README.md` |
-| `?` | genau ein Zeichen | `docs/v?.md` |
-
-Ordner und Muster in `DOCS` treffen nur Markdown-Dateien, die git nicht
-ignoriert, also versionierte und neue, aber keine erzeugten Vorschauen oder
-lokalen Notizen. Ein Muster ohne Treffer ist ein Problem. Ein Muster in
-`EXCLUDE` darf auch einen Ordner treffen (`docs/drafts-*` schließt alles
-darin aus).
-
-**Verbotener Text (`FORBIDDEN`):** Geprüft wird jede Zeile der Dokumente aus
-`DOCS`, auch in Codeblöcken; jeder Treffer ist ein Problem. Ein Eintrag hat
-eine von zwei Formen, jeweils optional mit `|<grund>`:
-
-- **Text** wie `"PUID"`: genau dieser Text, Groß-/Kleinschreibung zählt. Er
-  trifft auch innerhalb von Wörtern, `"UID"` also auch `PUID`.
-- **Regulärer Ausdruck** wie `"/\bP(U|G)ID\b/i"`, in JavaScript-Syntax:
-  `\b` Wortgrenze, `(a|b)` Alternative, `\d+` Ziffern; Flag `i` für beliebige
-  Groß-/Kleinschreibung. Das Muster darf `|` enthalten; es endet am ersten
-  `/`, dem nur Flags und dann `|grund` oder das Zeilenende folgen. Ein `/` im
-  Muster wird als `\/` geschrieben. Ein ungültiger Ausdruck bricht mit
-  Exit-Code 2 ab.
-
-Die Meldung nennt Zeilen, gefundenen Text und Grund. In Bash-Strings mit
-doppelten Anführungszeichen bleiben `\b` und `\d` erhalten; `$` und Backticks
-brauchen einen Backslash davor.
-
-**Nur Links (`LINKS_ONLY`):** für interne Doku, die verbotene Begriffe,
-Make-Targets oder Platzhalter nennen darf, etwa Projektregeln und Tickets.
-Geprüft werden nur Links und Bilder auf Dateien im Repo und Anker; ein toter
-Link ist ein Problem. Ein veralteter Verweis fällt so nur auf, wenn er als
-Markdown-Link geschrieben ist, nicht als Fließtext wie „siehe README,
-Abschnitt Setup“. Steht eine Datei auch in `DOCS`, gilt die
-vollständige Prüfung.
-
-**Bekannte Variablen (`KNOWN_VARIABLES`):** Eine Variable in
-Code-Formatierung, die in keiner versionierten Datei vorkommt, ergibt einen
-Hinweis. Stammt sie aus einer eingebundenen, nicht versionierten Bibliothek
-(etwa unter `.libs/`) oder ist sie ein allgemeiner Standard wie `NO_COLOR`,
-gehört sie hierher, damit derselbe Hinweis nicht bei jedem Lauf wiederkommt.
-
-**Bekannte Make-Targets (`KNOWN_MAKE_TARGETS`):** `make ZIEL` in der Doku
-muss im Makefile des Verzeichnisses stehen, in dem der Befehl läuft. Ein
-Target aus einer eingebundenen, nicht versionierten Bibliothek (etwa MakeLib
-unter `.libs/`) findet die Prüfung dort nicht. Steht es hier, gilt es in jedem
-Verzeichnis mit Makefile als vorhanden; alle anderen fehlenden Targets meldet
-die Prüfung weiter. Je Eintrag `"TARGET|grund"`, etwa
-`"dev-up|aus MakeLib"`.
-
-**Variablen aus dem Code (`CODE_VARIABLES`, `INTERNAL_VARIABLES`):** Die
-Gegenrichtung zu den Variablen in der Doku. Jede Umgebungsvariable, die der
-Code in diesen Pfaden ausdrücklich liest (`process.env.X`,
-`import.meta.env.X`, `Deno.env.get("X")`, `os.environ["X"]`, `getenv("X")`
-u. a.), muss in mindestens einem Dokument aus `DOCS` stehen; sonst ist das
-ein Problem. So fällt eine neue Variable beim ersten Testlauf auf. Tests und
-Zuweisungen (`os.environ["X"] = …`) zählen nicht. Was bewusst nicht in die
-Doku gehört, steht mit Grund in `INTERNAL_VARIABLES`; liest der Code einen
-solchen Eintrag nicht mehr, gibt es einen Hinweis.
-
-**Grenzwert (`MAX_ALERTS`)** setzt nur das Projekt: Ohne Eintrag prüft das
-Skript die Zahl der Hinweisboxen nicht.
-
-**Screenshots (`SCREENSHOTS`):** Ein Eintrag
-`"<ui-code>|<bilder>|<grund>"` verbindet Bilder (`.png`, `.jpg`, `.gif`,
-`.webp`, `.svg`, ohne von git ignorierte) mit dem Code, den sie zeigen. Der
-UI-Code ist eine Datei, ein Ordner oder ein Muster, mehrere mit Komma; welche
-Ordner das sind, legt jedes Projekt selbst fest. Hat sich der UI-Code nach
-einem Bild geändert, nennt die Ausgabe das Bild als Hinweis; die Prüfung
-scheitert daran nicht. Verglichen wird nicht mit dem Tagesdatum: Ein altes
-Bild ist richtig, solange sich die Oberfläche nicht geändert hat. Maßgeblich
-ist der letzte Commit, uncommittete Änderungen zählen als „jetzt“; das
-Dateidatum zählt nicht, weil Klon, Branchwechsel, Merge und Stash es neu
-setzen. Ein Eintrag ohne Bild ist ein Problem. Das frühere
-`MAX_SCREENSHOT_AGE_DAYS` entfällt; ist es gesetzt, bricht das Skript mit
-Exit-Code 2 ab.
-
-**Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
-an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit
-`/` gilt er ab dem Projekt-Root, `./README.md` meint nur das README im Root.
-Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
-Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
-zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
-Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
-`LINKS_ONLY`, Screenshots, `DEPENDS`, `TRANSLATIONS` und `CODE_VARIABLES` prüft `--run` nur
-ohne Pfadangabe, also beim Lauf über die ganze Config.
-
-**Abhängige Dateien (`DEPENDS`, `DEPENDS_HINT`):** Manche Dateien müssen einer
-anderen bald nach deren Änderung folgen, etwa eine Übersetzung ihrem Original
-oder eine erzeugte Vorschau ihrer Quelle. Ein Eintrag
-`"<basis>|<abhängig>|<tage>|<grund>"` vergleicht die letzten Änderungen beider
-Pfade; die Basis darf ein Ordner sein. Die Zeiten kommen aus git wie bei den
-Screenshots: Commit-Zeit, uncommittete und gestagte Änderungen zählen als
-„jetzt“. Landen beide im selben Commit, ist alles in Ordnung.
-
-| Stand | Ergebnis |
-|---|---|
-| Abhängige Datei gleich alt oder jünger | in Ordnung |
-| Basis jünger, Frist (`<tage>` ab der Basisänderung) läuft noch | Hinweis |
-| Basis jünger, Frist vorbei; bei `0` sofort | Problem, bei `DEPENDS_HINT` Hinweis |
-| Basis oder abhängige Datei fehlt | Problem |
-
-Die Meldung nennt den Befehl, der die Änderungen der Basis zeigt.
-
-**Sprachfassungen (`TRANSLATIONS`):** `DEPENDS` merkt nur, dass das
-Original jünger ist als die Übersetzung, nicht, ob beide noch dasselbe sagen.
-Ein Eintrag `"<original>|<übersetzung>|<grund>"` vergleicht deshalb den
-Aufbau: dieselbe Folge von Überschriftenebenen und je Abschnitt dieselben
-Linkziele und Bilder, denselben Inline-Code, dieselben Codeblöcke, gleich
-viele Hinweisboxen, Anker im Dokument und Absätze. Jede Abweichung ist ein
-Problem; eine Quittung gibt es dafür nicht.
-
-Was sich übersetzen darf, zählt nicht: Linktexte, Anker im eigenen Dokument
-(nur ihre Anzahl), die Sprachzeile mit Links auf die beiden Fassungen und die
-Beschriftungen in Mermaid-Diagrammen (nur die Anzahl der Diagramme). Ob der
-übersetzte Text dasselbe sagt, prüft das nicht; dafür bleibt `DEPENDS` mit
-Frist. Beispiel: Fehlt in `README.de.md` im Abschnitt „Lizenz“ der Link auf
-`LICENSING.md`, meldet die Prüfung „Link nur in README.md: LICENSING.md“.
-
-**Quittung (`--ack`):** Nicht jede Änderung der Basis verlangt etwas, etwa
-ein Tippfehler im README oder eine Codeänderung, die die Oberfläche nicht
-berührt. Wer das geprüft hat, quittiert, statt die abhängige Datei sinnlos
-anzufassen:
-
-```bash
-docs-check.sh --ack docs/images/dashboard.png   # ein Bild oder eine Datei
-docs-check.sh --ack docs/images                 # alle offenen in diesem Ordner
-docs-check.sh --ack                             # alle offenen Rückstände
-```
-
-Das schreibt je Paar den letzten Commit der Basis nach `.docs-check.ack` im
-Projekt-Root (`abhängig|basis|commit|datum`); die Datei wird mitcommittet.
-Solange die Basis keinen neueren Commit hat, gilt der Rückstand als erledigt,
-auch ein überfälliges `DEPENDS`. Mit dem nächsten Commit der Basis kommt der
-Hinweis zurück, und überholte Zeilen fallen beim nächsten `--ack` weg. Nicht
-quittieren lassen sich Einträge mit Frist `0` (neu erzeugen statt
-quittieren) und uncommittete Basen (erst committen). Die Prüfung darf beim
-Quittieren nur diese eine Datei schreiben.
-
-#### Doku-Abgleich zwischen zwei Ständen (`--changes`, Versuch)
-
-`docs-check.ts --changes BASE[..HEAD]` prüft nicht, sondern sammelt
-**Kandidaten** für den Doku-Abgleich einer Änderung: Bezeichner aus den
-geänderten Codezeilen (gelesene Umgebungsvariablen, Make-Targets,
-npm-Skripte, alte Texte aus den UI-Katalogen, Pfade geänderter Dateien,
-`feat`-Commits) und die Stellen in den angegebenen Dokumenten, die sie
-nennen. Gelesen wird nur aus git, nicht aus dem Arbeitsbaum; so lässt sich
-jeder frühere Merge genauso auswerten wie ein laufender Branch.
-
-```bash
-deno run --allow-read --allow-run=git src/deno/docs-check.ts --root . \
-    --changes master..HEAD --ui-catalog 'frontend/src/i18n/*.ts' \
-    --exclude docs/superpowers README.md docker/README.md docs
-```
-
-Je Kandidat nennt die Ausgabe den Status: **offen** (die Doku nennt den
-Bezeichner, keine dieser Stellen wurde mitgeändert), **ohne Doku-Stelle**
-oder **mitgeändert** (eine Fundstelle liegt höchstens drei Zeilen neben einer
-geänderten Zeile). Mit `--json` entsteht dieselbe Liste maschinenlesbar, als
-Eingabe für einen Agenten, der je Kandidat entscheidet. Kandidaten sind keine
-Fehler; der Exit-Code ist 0. Ob und wie das in `make test` oder den
-Ticket-Abschluss kommt, klärt ein Versuch in DocBench.
-
-Tests: `tests/deno/docs-check.test.ts` (Prüfregeln, mit Kanarienwerten in
-sensiblen Dateien) und `tests/bash/docs-check.test.sh --run` (Config,
-Optionen, Exit-Codes).
-
-## Python-Paket für Projektumgebungen
-
-Die wiederverwendbaren Python-Module liegen unter
-`src/python/projecttools/`. `projecttools.ui.colors` enthält Farben und
-Argparse-Formatierung, `projecttools.git_access` den Git-Zugriff des
-Changelog-Werkzeugs. Die ausführbaren Werkzeuge bleiben unter `src/python/`
-und funktionieren weiterhin direkt über Python und `py-run.sh`.
-
-Für Python-Skripte in anderen Projekten das Paket in deren eigener venv
-installieren:
-
-```bash
-.venv/bin/python -m pip install -e ./.libs/ProjectTools
-```
-
-Danach ist `from projecttools.ui.colors import HelpFormatter, Theme` ohne
-maschinenabhängigen Pfad oder `sys.path`-Änderung möglich. Die Installation
-gehört zur Umgebung des konsumierenden Projekts; der ProjectTools-Runner
-ändert diese Umgebung nicht.
-
-## CLI-Themes und Abstände
-
-Die drei eigenständigen Dateien MakeLib `colours.mk`, BashLib
-`colors.lib.sh` und ProjectTools `src/python/projecttools/ui/colors.py` verwenden dieselbe
-Palette und Theme-Auswahl: `classic` (Standard), `ocean`, `earth`, `night`,
-`mono`, `sunset`, `forest`, `neon`, `shell`. Ein unbekannter Name verwendet
-`classic`. Die Auswahl kann wie bisher in der jeweiligen Datei umgestellt
-oder mit `MAKE_THEME` überschrieben werden. Es gibt keine generierte Datei.
-Make exportiert die Auswahl und Layout-Werte an seine Kindprozesse.
-
-```bash
-make help MAKE_THEME=ocean
-MAKE_THEME=ocean ./src/bash/py-run.sh --help
-MAKE_THEME=ocean python3 src/python/changelog.py --help
-```
-
-| Einstellung | Vorgabe | Bedeutung |
-|---|---|---|
-| `THEME_INDENT_GROUP` | zwei Leerzeichen | Gruppenüberschrift |
-| `THEME_INDENT_TARGET` | sieben Leerzeichen | Target oder Option |
-| `THEME_WIDTH_TARGET` | `22` | Breite der ersten Spalte |
-| `THEME_COLUMN_GAP` | `1` | Mindestabstand zur Beschreibung |
-| `THEME_WIDTH_HELP` | `110` | Python-Hilfe: gesamte Textbreite |
-| `THEME_GROUP_SPACING` | `1` | Leerzeilen zwischen Gruppen |
-
-Mit diesen Vorgaben beginnt die Beschreibung in Spalte 31. Lange Beschriftungen
-stehen bei `usageLine`/`themeLine` und der Python-Hilfe auf einer eigenen Zeile.
-Python bricht lange Beschreibungen an der Gesamtbreite um; Bash und Make
-geben Beschreibungstexte wie bisher unverändert aus. Einrückungen sind weiterhin
-**Leerzeichenketten**, Breiten und Abstände nichtnegative Zahlen. Einzelne
-Werte vor dem Include/Source beziehungsweise per Umgebung überschreiben.
-
-`THEME_COLOR_GROUP`, `TARGET`, `DESC`, `SERVER`, `DANGER` (jeweils mit dem Präfix
-`THEME_COLOR_`) behalten ihre Namen. Hinzu kommen `THEME_COLOR_SUCCESS` und
-`THEME_COLOR_WARNING`. Grundfarben und die bisherigen öffentlichen Makros,
-Bash-Funktionen und Argumente bleiben verfügbar. Die Standarddarstellung der
-Ausgabehelfer folgt jetzt dem gemeinsamen Theme.
-
-Die neuen Bash-/Python-Helfer geben in Pipes, bei `NO_COLOR` und `TERM=dumb`
-keine ANSI-Farben aus. Make berücksichtigt `NO_COLOR` und behält seine bisherige
-TERM-basierte Farberkennung. Bash-Grundkonstanten bleiben aus Kompatibilität
-unveränderte Escape-Strings für `printf '%b'` oder `echo -e`.
-
-Python verwendet `from projecttools.ui.colors import HelpFormatter, Theme`; der Formatter
-liest die Optionen aus argparse. `Theme().line(label, description)` formatiert
-eine einzelne Zeile. `styled(text, color, stream)` bleibt für vorhandene
-Python-Farbaufrufe und `PROJECTTOOLS_COLOR_*` verfügbar.
-
-Repositoryübergreifender Vergleich aller neun Themes und alter Schnittstellen:
-
-```bash
-THEME_MAKE_LIB=/path/to/MakeLib BASH_LIBS=/path/to/BashLib/src \
-  python3 -m pytest tests/python/test_cli_themes.py
-```
+[↑ Übersicht](#übersicht)
