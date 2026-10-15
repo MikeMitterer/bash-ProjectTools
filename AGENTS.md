@@ -1,7 +1,7 @@
 # ProjectTools — Codex Context
 
-> Ergänzt den systemweiten `code-standards`-Skill mit projektspezifischem Kontext.
-> Konventionen und Library-Details → siehe `code-standards`-Skill.
+> Ergänzt den systemweiten `code-conventions`-Skill mit projektspezifischem Kontext.
+> Konventionen und Library-Details → siehe `code-conventions`-Skill.
 
 ## Projektübersicht
 
@@ -16,7 +16,7 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
 ## Konventionen
 
 - Config-Naming: `.$(basename "$0" .sh).conf` im CWD, Override `--config` —
-  Details im `code-standards`-Skill (Abschnitt „Config-Datei — Name folgt dem Script-Namen")
+  Details im `code-conventions`-Skill (Abschnitt „Config-Datei — Name folgt dem Script-Namen")
 - BashLib-Einbindung via `BASH_LIBS`; Fallback **logisch** aufgelöst
   (`$(cd "$(dirname "$0")/../../../BashLib/src" && pwd)`, kein `pwd -P`) — funktioniert
   direkt im DevBash-Baum und über Projekt-Symlinks
