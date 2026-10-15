@@ -126,6 +126,16 @@ commitAt() {
         commit -q -m test -- "$@"
 }
 
+# Liest die Ausgabe von --example als Config ein. Ueber eine Datei statt
+# ". <(...)": Bash 3.2 (/bin/bash unter macOS) liest aus einer
+# Prozess-Substitution nichts ein.
+sourceExample() {
+    printf '%s\n' "${output}" > "${fixture}/example.conf.sh"
+    # shellcheck source=/dev/null
+    . "${fixture}/example.conf.sh"
+    command rm -f -- "${fixture}/example.conf.sh"
+}
+
 teardownFixture() {
     if [[ -n "${fixture}" && -d "${fixture}" ]]; then
         command rm -rf -- "${fixture}"
@@ -152,8 +162,7 @@ testBeispielConfigIstSourcebar() {
     assertEquals "0" "${rc}" "--example: Exit-Code 0"
     # shellcheck disable=SC2034  # EXCLUDE wird von der Config gesetzt
     local DOCS=() EXCLUDE=() FORBIDDEN=()
-    # shellcheck source=/dev/null
-    . <(printf '%s\n' "${output}")
+    sourceExample
     assertEquals "README.md docs" "${DOCS[*]}" "--example: README und docs/ vorgeschlagen"
     assertEquals "0" "${#FORBIDDEN[@]}" "--example: keine verbotenen Begriffe vorbelegt"
     assertOutputLacks '"docker/README.md|' "--example: ohne docker/README.md kein Vorschlag"
@@ -166,8 +175,7 @@ testBeispielConfigSchlaegtDockerReadmeVor() {
     runScript --example
     # shellcheck disable=SC2034  # von der Config gesetzt
     local REQUIRED=()
-    # shellcheck source=/dev/null
-    . <(printf '%s\n' "${output}")
+    sourceExample
     assertEquals "README.md|docker/README.md|Container-Anleitung, Quelle der Docker-Hub-Beschreibung" \
         "${REQUIRED[0]}|${REQUIRED[1]}" "--example: docker/README.md als Pflichtdatei vorgeschlagen"
     git -C "${fixture}" rm -q --cached docker/README.md
