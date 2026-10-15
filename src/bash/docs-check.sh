@@ -11,7 +11,7 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, TRANSLATIONS,
+# KNOWN_MAKE_TARGETS, MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, TRANSLATIONS,
 # CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
@@ -37,6 +37,10 @@
 #
 # FORBIDDEN-Eintraege sind Text ("PUID") oder regulaere Ausdruecke
 # ("/\bP(U|G)ID\b/i"), jeweils optional mit "|<grund>".
+#
+# KNOWN_MAKE_TARGETS nennt Make-Targets, die als vorhanden gelten, obwohl kein
+# Makefile im Projekt sie enthaelt ("dev-up|aus MakeLib"); andere fehlende
+# Targets meldet die Pruefung weiter.
 #
 # Exit-Code: 0 ohne Probleme, 1 bei Problemen oder Fehlern, 2 bei einem
 # ungueltigen Eintrag (z. B. kaputter regulaerer Ausdruck).
@@ -98,6 +102,7 @@ LINKS_ONLY=()
 EXCLUDE=()
 FORBIDDEN=()
 KNOWN_VARIABLES=()
+KNOWN_MAKE_TARGETS=()
 MAX_ALERTS=""
 REQUIRED=()
 SCREENSHOTS=()
@@ -128,6 +133,7 @@ usage() {
     echo -e "    Einzelne Datei pruefen:   ${GREEN}${APPNAME} --run README.md${NC}"
     echo -e "    Screenshot quittieren:    ${GREEN}${APPNAME} --ack docs/images/dashboard.png${NC}"
     echo -e "    Config anlegen:           ${GREEN}${APPNAME} --example > ${CONFIG_DISPLAY}${NC}"
+    echo -e "    Target aus Bibliothek:    ${YELLOW}KNOWN_MAKE_TARGETS=(\"dev-up|aus MakeLib\")${NC} in ${CONFIG_DISPLAY}"
     echo
 }
 
@@ -246,6 +252,13 @@ MAX_ALERTS=""
 # Bibliothek. Je Eintrag optional mit "|<grund>".
 KNOWN_VARIABLES=(
     # "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
+)
+
+# Make-Targets, die die Doku nennen darf, obwohl kein Makefile im Projekt sie
+# enthält, z. B. aus einer nicht versionierten Bibliothek (MakeLib unter .libs/).
+# Je Eintrag "TARGET" optional mit "|<grund>"; gilt in jedem Verzeichnis mit Makefile.
+KNOWN_MAKE_TARGETS=(
+    # "dev-up|aus MakeLib, über .libs/MakeLib eingebunden"
 )
 
 # Optional: Code (Datei, Ordner oder Muster), dessen Umgebungsvariablen
@@ -412,8 +425,8 @@ runAck() {
         "${DOCS_CHECK_TS}" "${args[@]}"
 }
 
-# Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
-# MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
+# Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
+# KNOWN_MAKE_TARGETS und MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
 # REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS, TRANSLATIONS und CODE_VARIABLES.
 #
 # Params:
@@ -438,6 +451,9 @@ runCheck() {
     done
     for entry in "${KNOWN_VARIABLES[@]+"${KNOWN_VARIABLES[@]}"}"; do
         args+=(--known-variable "${entry}")
+    done
+    for entry in "${KNOWN_MAKE_TARGETS[@]+"${KNOWN_MAKE_TARGETS[@]}"}"; do
+        args+=(--known-make-target "${entry}")
     done
     [[ -n "${MAX_ALERTS}" ]] && args+=(--max-alerts "${MAX_ALERTS}")
     if [[ "${with_required}" == "true" ]]; then

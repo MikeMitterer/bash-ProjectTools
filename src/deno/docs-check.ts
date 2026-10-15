@@ -234,6 +234,8 @@ interface Facts {
   pythonScripts: Map<string, Set<string>>;
   cargoNames: Set<string>;
   variables: Map<string, Set<string>>;
+  /** Make-Targets aus der Config (KNOWN_MAKE_TARGETS), unabhängig vom Verzeichnis. */
+  knownMakeTargets: Set<string>;
 }
 
 /**
@@ -510,7 +512,15 @@ function collectFacts(project: Project): Facts {
       }
     }
   }
-  return { makeTargets, npmScripts, denoTasks, pythonScripts, cargoNames, variables };
+  return {
+    makeTargets,
+    npmScripts,
+    denoTasks,
+    pythonScripts,
+    cargoNames,
+    variables,
+    knownMakeTargets: new Set(),
+  };
 }
 
 /** Anker, auf die andere Dateien in `target` (Pfad im Repo, z. B. api/README.md) verlinken. */
@@ -610,6 +620,8 @@ function checkCommand(command: string, directory: string, facts: Facts, report: 
     if (target.includes("=") || target.startsWith("-")) continue;
     const makeDirectory = match[1] ? join(directory, match[1]) : directory;
     const info = facts.makeTargets.get(makeDirectory);
+    // Ein Target aus der Config gilt als vorhanden, wo es ein Makefile gibt.
+    if (info && facts.knownMakeTargets.has(target)) continue;
     if (!info) {
       report(
         "problem",
@@ -816,6 +828,8 @@ export interface Rules {
   maxAlerts?: number;
   /** Variablen, die als bekannt gelten, obwohl keine versionierte Datei sie nennt. */
   knownVariables?: string[];
+  /** Make-Targets, die als vorhanden gelten, etwa aus einer nicht versionierten Bibliothek. */
+  knownMakeTargets?: string[];
   /** Nur Links, Bilder und Anker prüfen (interne Doku). */
   linksOnly?: boolean;
   verbose: boolean;
@@ -917,6 +931,7 @@ export function checkDocument(
     if (!facts.variables.has(name)) facts.variables.set(name, new Set());
     facts.variables.get(name)!.add("Config");
   }
+  for (const target of rules.knownMakeTargets ?? []) facts.knownMakeTargets.add(target);
   // Ein README eines Unterprojekts beschreibt sein Verzeichnis, andere
   // Dokumente (z. B. docs/development.md) beschreiben das Projekt von der Wurzel aus.
   checkClaims(text, project, facts, isReadme ? home : ".", add);
@@ -2102,6 +2117,7 @@ interface Options {
   maxAlerts?: number;
   excludes: string[];
   knownVariables: string[];
+  knownMakeTargets: string[];
   linksOnlyInputs: string[];
   screenshots: ScreenshotEntry[];
   /** Quittieren statt prüfen; leer: alle offenen Rückstände. */
@@ -2126,6 +2142,7 @@ function parseArgs(args: string[]): Options | string {
     required: [],
     excludes: [],
     knownVariables: [],
+    knownMakeTargets: [],
     linksOnlyInputs: [],
     screenshots: [],
     dependencies: [],
@@ -2170,6 +2187,12 @@ function parseArgs(args: string[]): Options | string {
           return `--known-variable braucht einen Variablennamen, nicht „${name}“`;
         }
         options.knownVariables.push(name);
+      } else if (arg === "--known-make-target") {
+        const target = value().split("|")[0].trim();
+        if (!/^[A-Za-z0-9_.-]+$/.test(target)) {
+          return `--known-make-target braucht ein Make-Target, nicht „${target}“`;
+        }
+        options.knownMakeTargets.push(target);
       } else if (arg === "--internal-variable") {
         const [name, ...reason] = value().split("|");
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name.trim())) {

@@ -340,6 +340,26 @@ EOF
     command rm -rf -- "${fixture}/svc"
 }
 
+# KNOWN_MAKE_TARGETS kommt aus der Config an: das genannte Target gilt als
+# vorhanden, ein anderes fehlendes bleibt ein Problem.
+# shellcheck disable=SC2016  # Backticks sind Markdown, keine Ersetzung
+testBekannteMakeTargetsAusConfig() {
+    printf 'test:\n\techo test\n' > "${fixture}/Makefile"
+    printf '# Make\n\n```bash\nmake dev-up\nmake gibtsnicht\n```\n' > "${fixture}/make.md"
+    git -C "${fixture}" add Makefile make.md
+    cat > "${fixture}/make.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("make.md")
+KNOWN_MAKE_TARGETS=("dev-up|aus MakeLib")
+EOF
+    runScript --config make.conf.sh --run
+    assertEquals "1" "${rc}" "KNOWN_MAKE_TARGETS: anderes fehlendes Target ergibt Exit-Code 1"
+    assertOutputLacks "make dev-up" "KNOWN_MAKE_TARGETS: Target gilt als vorhanden"
+    assertOutputContains "make gibtsnicht" "KNOWN_MAKE_TARGETS: anderes Target weiter gemeldet"
+    git -C "${fixture}" rm -q --cached Makefile make.md
+    command rm -f -- "${fixture}/Makefile" "${fixture}/make.md" "${fixture}/make.conf.sh"
+}
+
 testUngueltigerAusdruckBrichtAb() {
     printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nFORBIDDEN=("/[/")\n' > "${fixture}/broken.conf.sh"
     runScript --config broken.conf.sh --run
@@ -374,6 +394,7 @@ runAll() {
     testAbhaengigkeitenAusConfig
     testMaxScreenshotAgeEntfaellt
     testCodeVariablenAusConfig
+    testBekannteMakeTargetsAusConfig
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then
