@@ -263,6 +263,13 @@ const known = run(
   "UNTRACKED_ONLY_VAR|aus einer Bibliothek",
   `${root}/README.md`,
 );
+const knownTarget = run(
+  "--root",
+  root,
+  "--known-make-target",
+  "deploy|aus einer eingebundenen Bibliothek",
+  `${root}/README.md`,
+);
 const shots = run(
   "--root",
   root,
@@ -554,6 +561,20 @@ Deno.test("Bekannte Variablen aus der Config gelten als vorhanden", () => {
   assert(lineFor(known.output, "ENV_ONLY_VAR").includes("Hinweis"), "andere bleiben unbekannt");
   const bad = run("--root", root, "--known-variable", "kein name", `${root}/README.md`);
   assert(bad.code === 2 && bad.output.includes("Variablennamen"), bad.output);
+});
+
+Deno.test("Bekannte Make-Targets aus der Config gelten als vorhanden", () => {
+  assert(!lineFor(knownTarget.output, "make deploy"), knownTarget.output);
+  assert(
+    lineFor(knownTarget.output, "make nope").includes("Problem"),
+    "andere fehlende Targets bleiben ein Problem",
+  );
+  assert(
+    lineFor(knownTarget.output, "make leak").includes("Hinweis"),
+    "andere unklare Targets bleiben ein Hinweis",
+  );
+  const bad = run("--root", root, "--known-make-target", "kein target", `${root}/README.md`);
+  assert(bad.code === 2 && bad.output.includes("Target"), bad.output);
 });
 
 Deno.test("Screenshots: mit dem UI-Code verglichen, nicht mit dem Tagesdatum", () => {

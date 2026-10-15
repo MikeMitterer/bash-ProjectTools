@@ -558,6 +558,11 @@ KNOWN_VARIABLES=(
     "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
 )
 
+# Make-Targets, die kein Makefile im Projekt enthält, je optional mit "|<grund>".
+KNOWN_MAKE_TARGETS=(
+    "dev-up|aus MakeLib, über .libs/MakeLib eingebunden"
+)
+
 # Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
 CODE_VARIABLES=(
     "api/src"
@@ -649,6 +654,14 @@ Code-Formatierung, die in keiner versionierten Datei vorkommt, ergibt einen
 Hinweis. Stammt sie aus einer eingebundenen, nicht versionierten Bibliothek
 (etwa unter `.libs/`) oder ist sie ein allgemeiner Standard wie `NO_COLOR`,
 gehört sie hierher, damit derselbe Hinweis nicht bei jedem Lauf wiederkommt.
+
+**Bekannte Make-Targets (`KNOWN_MAKE_TARGETS`):** `make ZIEL` in der Doku
+muss im Makefile des Verzeichnisses stehen, in dem der Befehl läuft. Ein
+Target aus einer eingebundenen, nicht versionierten Bibliothek (etwa MakeLib
+unter `.libs/`) findet die Prüfung dort nicht. Steht es hier, gilt es in jedem
+Verzeichnis mit Makefile als vorhanden; alle anderen fehlenden Targets meldet
+die Prüfung weiter. Je Eintrag `"TARGET|grund"`, etwa
+`"dev-up|aus MakeLib"`.
 
 **Variablen aus dem Code (`CODE_VARIABLES`, `INTERNAL_VARIABLES`):** Die
 Gegenrichtung zu den Variablen in der Doku. Jede Umgebungsvariable, die der
