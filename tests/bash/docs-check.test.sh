@@ -111,6 +111,21 @@ setupFixture() {
     git -C "${fixture}" add -A
 }
 
+# Committet Pfade im Fixture mit festem Autor- und Commit-Datum, damit alte
+# Staende ohne Warten entstehen. Das Dateidatum zaehlt fuer docs-check nicht.
+#
+# Params:
+#   $1    - Datum, z. B. "2020-01-01T00:00:00"
+#   $2... - zu committende Pfade
+commitAt() {
+    local when="$1"
+    shift
+    git -C "${fixture}" add -- "$@"
+    GIT_AUTHOR_DATE="${when}" GIT_COMMITTER_DATE="${when}" \
+        git -C "${fixture}" -c user.name=Test -c user.email=t@example.invalid \
+        commit -q -m test -- "$@"
+}
+
 teardownFixture() {
     if [[ -n "${fixture}" && -d "${fixture}" ]]; then
         command rm -rf -- "${fixture}"
@@ -243,7 +258,7 @@ testNeueConfigEintraege() {
     printf '# Lib\n\n`LIB_VAR` setzen.\n' > "${fixture}/lib.md"
     mkdir -p "${fixture}/shots"
     printf 'png' > "${fixture}/shots/a.png"
-    touch -t 202001010000 "${fixture}/shots/a.png"
+    commitAt "2020-01-01T00:00:00" shots/a.png
     cat > "${fixture}/new.conf.sh" <<'EOF'
 # shellcheck disable=SC2034
 DOCS=("lib.md")
@@ -262,6 +277,32 @@ EOF
     runScript --config new.conf.sh --run lib.md
     assertEquals "0" "${rc}" "--run mit Pfad: ohne Nur-Link-Dokumente und Screenshots"
     assertOutputLacks "Screenshots" "--run mit Pfad: keine Screenshots"
+}
+
+# DEPENDS und DEPENDS_HINT kommen aus der Config an, nur beim Lauf ueber das
+# ganze Projekt. Basis nach der abhaengigen Datei geaendert und Frist vorbei:
+# DEPENDS scheitert, DEPENDS_HINT bleibt ein Hinweis.
+testAbhaengigkeitenAusConfig() {
+    printf '# Basis\n' > "${fixture}/base.md"
+    printf '# Abhaengig\n' > "${fixture}/dependent.md"
+    commitAt "2020-01-01T00:00:00" base.md dependent.md
+    printf '# Basis neu\n' > "${fixture}/base.md"
+    commitAt "2020-02-01T00:00:00" base.md
+    cat > "${fixture}/depends.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("README.md")
+DEPENDS_HINT=("base.md|dependent.md|3|Uebersetzung")
+EOF
+    runScript --config depends.conf.sh --run
+    assertEquals "0" "${rc}" "DEPENDS_HINT: ueberfaellig, aber kein Problem"
+    assertOutputContains "base.md → dependent.md" "DEPENDS_HINT: Paar genannt"
+    assertOutputContains "überfällig" "DEPENDS_HINT: Frist genannt"
+    printf 'DEPENDS=("base.md|dependent.md|3|Uebersetzung")\nDEPENDS_HINT=()\n' >> "${fixture}/depends.conf.sh"
+    runScript --config depends.conf.sh --run
+    assertEquals "1" "${rc}" "DEPENDS: ueberfaellig ist ein Problem"
+    runScript --config depends.conf.sh --run README.md
+    assertEquals "0" "${rc}" "--run mit Pfad: ohne Abhaengigkeiten"
+    assertOutputLacks "Abhängige Dokumente" "--run mit Pfad: keine Abhaengigkeiten"
 }
 
 # CODE_VARIABLES und INTERNAL_VARIABLES kommen aus der Config an.
@@ -314,6 +355,7 @@ runAll() {
     testRequiredAusConfig
     testMusterInDocsUndExclude
     testNeueConfigEintraege
+    testAbhaengigkeitenAusConfig
     testCodeVariablenAusConfig
 
     echo

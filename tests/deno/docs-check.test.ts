@@ -35,6 +35,37 @@ function run(...args: string[]): { output: string; code: number } {
   };
 }
 
+/** Zeitpunkt vor so vielen Tagen. */
+function daysAgo(days: number): Date {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+/**
+ * Committet die Pfade (alle gestagten ohne Angabe) mit Autor- und
+ * Commit-Zeit `when`. So lassen sich alte Stände ohne Warten herstellen.
+ */
+function commitAt(repo: string, when: Date, ...paths: string[]): void {
+  const result = new Deno.Command("git", {
+    args: [
+      "-C",
+      repo,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=t@example.invalid",
+      "commit",
+      "-q",
+      "-m",
+      "test",
+      ...(paths.length ? ["--", ...paths] : []),
+    ],
+    env: { GIT_AUTHOR_DATE: when.toISOString(), GIT_COMMITTER_DATE: when.toISOString() },
+    stdout: "null",
+    stderr: "piped",
+  }).outputSync();
+  if (!result.success) throw new Error(new TextDecoder().decode(result.stderr));
+}
+
 /** Zeile der Ausgabe, die den Text nennt, oder ''. */
 function lineFor(output: string, needle: string): string {
   return output.split("\n").find((line) => line.includes(needle)) ?? "";
@@ -127,12 +158,13 @@ function fixture(): string {
       "Siehe [Setup](README.md#install), [alt](docs/old.md) und [weg](#nirgends).\n\n" +
       `Absolut: [da](${root}/LICENSE), [fort](/nirgends/plan.md).\n\n## Bauen und prüfen\n`,
   );
-  // Screenshots: eines frisch, eines vor 100 Tagen geändert, eines von git ignoriert.
+  // Screenshots: eines neu (uncommittet), eines vor 100 Tagen committet, eines
+  // von git ignoriert. Das Alter kommt aus git, nicht aus dem Dateidatum.
   write(root, "shots/fresh.png", "png");
   write(root, "shots/old.png", "png");
   write(root, "gen/ignored.png", "png");
-  const hundredDaysAgo = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000);
-  Deno.utimeSync(`${root}/shots/old.png`, hundredDaysAgo, hundredDaysAgo);
+  git("add", "shots/old.png");
+  commitAt(root, daysAgo(100), "shots/old.png");
   // Drei Hinweisboxen in einem README: Hinweis mit Zeilen und Box-Art.
   write(
     root,
@@ -515,8 +547,13 @@ Deno.test("Bekannte Variablen aus der Config gelten als vorhanden", () => {
   assert(bad.code === 2 && bad.output.includes("Variablennamen"), bad.output);
 });
 
-Deno.test("Screenshots: Alter nach Änderungsdatum, zu alte als Hinweis", () => {
+Deno.test("Screenshots: Alter nach git, zu alte als Hinweis", () => {
   assert(shots.output.includes("Screenshots: 2, höchstens 60 Tage alt"), shots.output);
+  // Das Dateidatum zählt nicht: frisch geschrieben, aber vor 100 Tagen committet.
+  assert(
+    Deno.statSync(`${root}/shots/old.png`).mtime!.getTime() > daysAgo(1).getTime(),
+    "Dateidatum ist neu",
+  );
   assert(/✓ shots\/fresh\.png\s+geändert am .*, vor 0 Tagen/.test(shots.output), shots.output);
   const old = lineFor(shots.output, "shots/old.png");
   assert(
@@ -642,6 +679,94 @@ Deno.test("Doku-Abgleich: Kandidaten zwischen zwei Ständen", () => {
     assert(text.output.includes("Make-Target") && text.output.includes("README.md:9"), text.output);
     const bad = run("--root", repo, "--changes", "nirgends..HEAD", "README.md");
     assert(bad.code === 2 && bad.output.includes("„nirgends“"), bad.output);
+  } finally {
+    Deno.removeSync(repo, { recursive: true });
+  }
+});
+
+/**
+ * Basis und abhängige Dateien mit Commits zu festen Zeitpunkten: vor 10 Tagen
+ * alles, vor 5 Tagen nur Basisdateien, dazu uncommittete Änderungen.
+ */
+function dependsFixture(): string {
+  const repo = Deno.makeTempDirSync({ prefix: "docs-check-depends-" });
+  new Deno.Command("git", { args: ["-C", repo, "init", "-q"] }).outputSync();
+  const stage = () => new Deno.Command("git", { args: ["-C", repo, "add", "-A"] }).outputSync();
+  for (const name of ["same", "recent", "late", "hint", "zero", "both", "dir"]) {
+    write(repo, `${name}/base.md`, "# Basis\n");
+    write(repo, `${name}/dependent.md`, "# Abhängig\n");
+  }
+  write(repo, "dir/i18n/en.ts", "export default {}\n");
+  stage();
+  commitAt(repo, daysAgo(10));
+  // Gleichzeitig nachgezogen: derselbe Commit.
+  write(repo, "same/base.md", "# Basis\n\nneu\n");
+  write(repo, "same/dependent.md", "# Abhängig\n\nneu\n");
+  // Nur die Basis geändert, vor 5 Tagen.
+  for (const name of ["recent", "late", "hint"]) write(repo, `${name}/base.md`, "# Basis 2\n");
+  write(repo, "dir/i18n/en.ts", "export default { a: 1 }\n");
+  stage();
+  commitAt(repo, daysAgo(5));
+  // Uncommittet: Basis allein, Basis und abhängige Datei zusammen.
+  write(repo, "zero/base.md", "# Basis 3\n");
+  write(repo, "both/base.md", "# Basis 3\n");
+  write(repo, "both/dependent.md", "# Abhängig 3\n");
+  return repo;
+}
+
+Deno.test("Abhängige Dokumente: Zeiten aus git, Frist in Tagen", () => {
+  const repo = dependsFixture();
+  try {
+    const result = run(
+      "--root",
+      repo,
+      "--depends",
+      "same/base.md|same/dependent.md|0|derselbe Commit",
+      "--depends",
+      "recent/base.md|recent/dependent.md|30",
+      "--depends",
+      "late/base.md|late/dependent.md|2|Übersetzung",
+      "--depends-hint",
+      "hint/base.md|hint/dependent.md|2",
+      "--depends",
+      "zero/base.md|zero/dependent.md|0|erzeugt",
+      "--depends",
+      "both/base.md|both/dependent.md|0",
+      "--depends",
+      "dir/i18n|dir/dependent.md|30|Ordner als Basis",
+      "--depends",
+      "same/base.md|nirgends.md|3",
+    );
+    const output = result.output;
+    assert(output.includes("Abhängige Dokumente: 8"), output);
+    assert(lineFor(output, "same/dependent.md").includes("nachgezogen"), output);
+    assert(lineFor(output, "both/dependent.md").includes("nachgezogen (uncommittet)"), output);
+    const recent = lineFor(output, "recent/dependent.md");
+    assert(
+      recent.includes("?") && recent.includes("Frist") && !recent.includes("überfällig"),
+      output,
+    );
+    const late = lineFor(output, "late/dependent.md");
+    assert(
+      late.includes("✗") && late.includes("überfällig") && late.includes("Übersetzung"),
+      output,
+    );
+    const hint = lineFor(output, "hint/dependent.md");
+    assert(
+      hint.includes("?") && hint.includes("überfällig"),
+      `DEPENDS_HINT bleibt Hinweis:\n${output}`,
+    );
+    const zero = lineFor(output, "zero/dependent.md");
+    assert(zero.includes("✗") && zero.includes("Basis geändert uncommittet"), output);
+    assert(zero.includes("gehört in denselben Commit"), output);
+    assert(output.includes("git diff HEAD -- zero/base.md"), "uncommittete Basis: git diff");
+    assert(output.includes("git log -p --since="), "committete Basis: git log");
+    assert(lineFor(output, "dir/dependent.md").includes("?"), "Ordner als Basis");
+    assert(lineFor(output, "nirgends.md").includes("fehlt"), output);
+    assert(output.includes("8 Abhängigkeiten geprüft · 3 Probleme · 3 Hinweise"), output);
+    assert(result.code === 1, "überfällige Abhängigkeit scheitert");
+    const bad = run("--root", repo, "--depends", "a.md|b.md|bald");
+    assert(bad.code === 2 && bad.output.includes("ganze Zahl von Tagen"), bad.output);
   } finally {
     Deno.removeSync(repo, { recursive: true });
   }

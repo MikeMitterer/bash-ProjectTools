@@ -31,8 +31,14 @@
  *   --internal-variable NAME|GRUND
  *                          Vom Code gelesen, bewusst nicht dokumentiert
  *   --screenshot PFAD      Bild, Ordner oder Muster, dessen Alter geprüft wird
- *   --max-screenshot-age N Hinweis, wenn ein Screenshot zuletzt vor mehr als
- *                          N Tagen geändert wurde (nur mit --screenshot)
+ *   --max-screenshot-age N Hinweis, wenn ein Screenshot laut git zuletzt vor
+ *                          mehr als N Tagen geändert wurde (nur mit --screenshot)
+ *   --depends BASIS|ABHÄNGIG|TAGE[|GRUND]
+ *                          ABHÄNGIG muss BASIS folgen: Ändert sich die Basis
+ *                          später, ist das ein Hinweis, nach TAGE Tagen ein
+ *                          Problem (0: im selben Commit). Zeiten aus git;
+ *                          uncommittete Änderungen zählen als „jetzt“
+ *   --depends-hint EINTRAG Wie --depends, aber auch überfällig nur ein Hinweis
  *   --changes BASE[..HEAD] Statt der Prüfung: Kandidaten für den Doku-Abgleich
  *                          zwischen zwei Ständen (HEAD ohne Angabe: HEAD).
  *                          DATEI|ORDNER sind die Dokumente; gelesen wird nur aus git
@@ -1542,7 +1548,36 @@ function printChangeReport(report: ChangeReport, paint: (code: string, text: str
 const IMAGE_SUFFIXES = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"]);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Alter eines Screenshots nach dem Änderungsdatum der Datei. */
+/** Letzte Änderung eines Pfads nach git. */
+export interface Change {
+  /** Millisekunden seit 1970; bei uncommitteten Änderungen der Prüfzeitpunkt. */
+  time: number;
+  /** Uncommittet, gestagt oder neu: zählt als „jetzt“. */
+  pending: boolean;
+}
+
+/**
+ * Wann sich eine Datei oder ein Ordner zuletzt geändert hat. Uncommittete,
+ * gestagte und neue, nicht ignorierte Dateien gelten als „jetzt“; sonst zählt
+ * die Commit-Zeit des letzten Commits, der den Pfad ändert. Das Dateidatum
+ * taugt dafür nicht: Klon, Branchwechsel, Merge und Stash setzen es neu.
+ * `undefined`, wenn der Pfad fehlt oder git ihn nicht kennt.
+ */
+export function lastChange(root: string, path: string, now = Date.now()): Change | undefined {
+  if (!exists(`${root}/${path}`)) return undefined;
+  if (git(root, "status", "--porcelain", "--untracked-files=all", "--", path)) {
+    return { time: now, pending: true };
+  }
+  const seconds = Number(git(root, "log", "-1", "--format=%ct", "--", path));
+  return seconds ? { time: seconds * 1000, pending: false } : undefined;
+}
+
+/** Kalendertag einer Änderung oder „uncommittet“. */
+function changeLabel(change: Change): string {
+  return change.pending ? "uncommittet" : new Date(change.time).toISOString().slice(0, 10);
+}
+
+/** Alter eines Screenshots nach seiner letzten Änderung laut git. */
 export interface ScreenshotResult {
   path: string;
   changed: Date;
@@ -1578,11 +1613,87 @@ export function checkScreenshots(
     for (const path of found) paths.add(path);
   }
   const results = [...paths].sort().map((path) => {
-    const changed = Deno.statSync(`${project.root}/${path}`).mtime ?? new Date(now);
+    const changed = new Date(lastChange(project.root, path, now)?.time ?? now);
     const ageDays = Math.max(0, Math.floor((now - changed.getTime()) / DAY_MS));
     return { path, changed, ageDays, tooOld: ageDays > maxAgeDays };
   });
   return { results, missing };
+}
+
+/** Ein Dokument, das einem anderen bald nach dessen Änderung folgen muss. */
+export interface Dependency {
+  base: string;
+  dependent: string;
+  /** Tage, die die abhängige Datei hinter der Basis liegen darf; 0: derselbe Commit. */
+  maxLagDays: number;
+  reason: string;
+  /** Aus DEPENDS_HINT: auch überfällig nur ein Hinweis. */
+  hintOnly: boolean;
+}
+
+/**
+ * Liest `BASIS|ABHÄNGIG|TAGE[|GRUND]`. Die Basis darf auch ein Ordner sein,
+ * etwa die i18n-Kataloge, von denen ein Handbuch abhängt.
+ */
+export function parseDependency(entry: string, hintOnly: boolean): Dependency | string {
+  const [base, dependent, days, ...reason] = entry.split("|").map((part) => part.trim());
+  if (!base || !dependent) return `Abhängigkeit braucht BASIS|ABHÄNGIG|TAGE: ${entry}`;
+  const maxLagDays = Number(days);
+  if (!days || !Number.isInteger(maxLagDays) || maxLagDays < 0) {
+    return `Abhängigkeit braucht eine ganze Zahl von Tagen ab 0: ${entry}`;
+  }
+  const clean = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
+  return {
+    base: clean(base),
+    dependent: clean(dependent),
+    maxLagDays,
+    reason: reason.join("|"),
+    hintOnly,
+  };
+}
+
+/** Stand einer Abhängigkeit. */
+export interface DependencyResult {
+  dependency: Dependency;
+  /** Pfad, den es nicht gibt oder den git nicht kennt. */
+  missing?: string;
+  base?: Change;
+  dependent?: Change;
+  /** Die Basis hat sich nach der abhängigen Datei geändert. */
+  behind: boolean;
+  /** Bis dahin muss die abhängige Datei nachgezogen sein. */
+  due?: number;
+  /** Frist überschritten; bei `maxLagDays` 0 sofort. */
+  overdue: boolean;
+}
+
+/**
+ * Vergleicht je Abhängigkeit die letzten Änderungen laut git (lastChange).
+ * Ändern sich beide im selben Commit oder sind beide uncommittet, ist die
+ * abhängige Datei nachgezogen.
+ */
+export function checkDependencies(
+  root: string,
+  dependencies: Dependency[],
+  now = Date.now(),
+): DependencyResult[] {
+  return dependencies.map((dependency) => {
+    const base = lastChange(root, dependency.base, now);
+    const dependent = lastChange(root, dependency.dependent, now);
+    if (!base || !dependent) {
+      return {
+        dependency,
+        missing: base ? dependency.dependent : dependency.base,
+        base,
+        dependent,
+        behind: false,
+        overdue: false,
+      };
+    }
+    const behind = base.time > dependent.time;
+    const due = base.time + dependency.maxLagDays * DAY_MS;
+    return { dependency, base, dependent, behind, due, overdue: behind && now >= due };
+  });
 }
 
 // ------------------------------------------------------------ Kommandozeile
@@ -1597,6 +1708,7 @@ interface Options {
   linksOnlyInputs: string[];
   screenshots: string[];
   maxScreenshotAge?: number;
+  dependencies: Dependency[];
   codeVariables: string[];
   internalVariables: Array<{ name: string; reason: string }>;
   changes?: { base: string; head: string };
@@ -1617,6 +1729,7 @@ function parseArgs(args: string[]): Options | string {
     knownVariables: [],
     linksOnlyInputs: [],
     screenshots: [],
+    dependencies: [],
     codeVariables: [],
     internalVariables: [],
     uiCatalogs: [],
@@ -1672,7 +1785,11 @@ function parseArgs(args: string[]): Options | string {
       else if (arg === "--code-variables") options.codeVariables.push(value());
       else if (arg === "--links-only") options.linksOnlyInputs.push(value());
       else if (arg === "--screenshot") options.screenshots.push(value());
-      else if (arg === "--max-screenshot-age") {
+      else if (arg === "--depends" || arg === "--depends-hint") {
+        const dependency = parseDependency(value(), arg === "--depends-hint");
+        if (typeof dependency === "string") return dependency;
+        options.dependencies.push(dependency);
+      } else if (arg === "--max-screenshot-age") {
         const days = Number(value());
         if (!Number.isInteger(days) || days < 1) {
           return "--max-screenshot-age braucht eine ganze Zahl von Tagen ab 1";
@@ -1692,9 +1809,9 @@ function parseArgs(args: string[]): Options | string {
   }
   if (
     !options.inputs.length && !options.linksOnlyInputs.length && !options.required.length &&
-    !options.screenshots.length
+    !options.screenshots.length && !options.dependencies.length
   ) {
-    return "keine Datei, kein Ordner, keine Pflichtdatei und kein Screenshot angegeben";
+    return "keine Datei, kein Ordner, keine Pflichtdatei, kein Screenshot und keine Abhängigkeit angegeben";
   }
   if (options.codeVariables.length && !options.inputs.length) {
     return "--code-variables braucht Dokumente, in denen die Variablen stehen (DOCS)";
@@ -1738,7 +1855,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot PFAD --max-screenshot-age TAGE] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -1910,6 +2027,57 @@ function main(args: string[]): number {
     }
   }
 
+  // Abhängige Dokumente: Basis später geändert ist ein Hinweis, nach der Frist
+  // ein Problem (DEPENDS_HINT: immer nur Hinweis).
+  const dependencies = checkDependencies(project.root, options.dependencies);
+  const dependencyProblem = (result: DependencyResult) =>
+    result.missing !== undefined || (result.overdue && !result.dependency.hintOnly);
+  if (dependencies.length) {
+    console.log(`\n${paint("1", `Abhängige Dokumente: ${dependencies.length}${source}`)}\n`);
+    const pairs = dependencies.map(({ dependency }) =>
+      `${dependency.base} → ${dependency.dependent}`
+    );
+    const pairWidth = Math.max(0, ...pairs.map((pair) => pair.length));
+    const advise = (text: string) => console.log(`${" ".repeat(pairWidth + 7)}→ ${text}`);
+    dependencies.forEach((result, index) => {
+      const { dependency, missing, base, dependent, behind, due, overdue } = result;
+      const pair = pairs[index].padEnd(pairWidth);
+      const reason = dependency.reason ? ` · ${dependency.reason}` : "";
+      if (missing !== undefined) {
+        console.log(
+          `  ${paint("31", "✗")} ${pair}   ${
+            paint("31", `${missing} fehlt oder ist nicht in git`)
+          }`,
+        );
+        advise("Datei anlegen und committen oder Eintrag in DEPENDS korrigieren.");
+        return;
+      }
+      if (!behind) {
+        console.log(
+          `  ${paint("32", "✓")} ${pair}   nachgezogen (${changeLabel(dependent!)})${reason}`,
+        );
+        return;
+      }
+      const state = `Basis geändert ${changeLabel(base!)}, abhängig ${changeLabel(dependent!)}`;
+      const deadline = dependency.maxLagDays
+        ? `Frist ${new Date(due!).toISOString().slice(0, 10)}`
+        : "gehört in denselben Commit";
+      const problem = dependencyProblem(result);
+      const color = problem ? "31" : "33";
+      console.log(
+        `  ${paint(color, problem ? "✗" : "?")} ${pair}   ${
+          paint(color, `${state} · ${overdue ? "überfällig, " : ""}${deadline}`)
+        }${reason}`,
+      );
+      advise(
+        `${dependency.dependent} an ${dependency.base} angleichen und committen. Änderungen: ` +
+          (base!.pending
+            ? `git diff HEAD -- ${dependency.base}`
+            : `git log -p --since=${changeLabel(dependent!)} -- ${dependency.base}`),
+      );
+    });
+  }
+
   // Umgebungsvariablen aus dem Code: je Variable, wo die Doku sie nennt.
   const codeVariables = options.codeVariables.length
     ? checkCodeVariables(
@@ -2014,17 +2182,19 @@ function main(args: string[]): number {
     ...(options.screenshots.length
       ? [count(screenshots.results.length, "Screenshot", "Screenshots")]
       : []),
+    ...(dependencies.length ? [count(dependencies.length, "Abhängigkeit", "Abhängigkeiten")] : []),
     ...(options.codeVariables.length
       ? [count(codeVariables.results.length, "Code-Variable", "Code-Variablen")]
       : []),
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
     failedRequired + screenshots.missing.length + codeVariables.missing.length +
-    undocumented.length;
+    undocumented.length + dependencies.filter(dependencyProblem).length;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
     screenshots.results.filter((result) => result.tooOld).length +
-    codeVariables.staleInternal.length;
+    codeVariables.staleInternal.length +
+    dependencies.filter((result) => result.behind && !dependencyProblem(result)).length;
   const verdict = problems
     ? paint("31", count(problems, "Problem", "Probleme"))
     : paint("32", "keine Probleme");

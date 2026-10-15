@@ -32,7 +32,7 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
   ein Ziel, das noch ein Symlink ist, legt die Sicherung im fremden Repo ab —
   genau so ist es einmal passiert. Tests: `tests/bash/pkg-link.test.sh --run`
 - `src/bash/docs-check.sh` — Nutzerdokumente gegen das Projekt prüfen (Config:
-  `.docs-check.conf.sh` mit `DOCS`, `EXCLUDE`, `FORBIDDEN`, `MAX_ALERTS`, `REQUIRED`). Die Prüfung liegt in
+  `.docs-check.conf.sh`, alle Schlüssel im README unter „Format `.docs-check.conf.sh`“). Die Prüfung liegt in
   `src/deno/docs-check.ts` und liest nie Dateien mit Zugangsdaten. Tests:
   `deno test --allow-read --allow-write --allow-run=git,deno tests/deno/docs-check.test.ts`
   und `tests/bash/docs-check.test.sh --run`

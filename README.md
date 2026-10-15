@@ -454,8 +454,10 @@ Je Markdown-Datei:
 
 Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
 tote Links und Anker (`LINKS_ONLY`), das **Alter der Screenshots**
-(`SCREENSHOTS`) und ob jede **Umgebungsvariable, die der Code liest**, in der
-Doku steht (`CODE_VARIABLES`).
+(`SCREENSHOTS`), ob **abhängige Dateien** wie Übersetzungen oder erzeugte
+Vorschauen ihrer Basis gefolgt sind (`DEPENDS`) und ob jede
+**Umgebungsvariable, die der Code liest**, in der Doku steht
+(`CODE_VARIABLES`).
 
 Aufruf im Projekt-Root:
 
@@ -561,6 +563,16 @@ SCREENSHOTS=(
 )
 MAX_SCREENSHOT_AGE_DAYS=60
 
+# Optional: abhängige Dateien, je "<basis>|<abhängig>|<tage>|<grund>".
+DEPENDS=(
+    "docker/README.md|docker/preview/README.md|0|erzeugt"
+    "README.md|README.de.md|3|deutsche Fassung"
+)
+# Gleiches Format, auch überfällig nur ein Hinweis.
+DEPENDS_HINT=(
+    "frontend/src/i18n|docs/user-guide.md|30|Bedienelemente im Wortlaut der App"
+)
+
 # Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
 CODE_VARIABLES=(
     "api/src"
@@ -635,8 +647,9 @@ Projekt: Ohne Eintrag prüft das Skript die Zahl der Hinweisboxen und das
 Alter der Screenshots nicht.
 
 **Screenshots (`SCREENSHOTS`):** Bilder (`.png`, `.jpg`, `.gif`, `.webp`,
-`.svg`), die git nicht ignoriert. Maßgeblich ist das Änderungsdatum der Datei
-auf der Platte. Ist ein Bild älter als `MAX_SCREENSHOT_AGE_DAYS` Tage, nennt
+`.svg`), die git nicht ignoriert. Maßgeblich ist der letzte Commit, der das
+Bild ändert; ein uncommittetes Bild gilt als neu. Das Dateidatum zählt nicht,
+weil Klon, Branchwechsel, Merge und Stash es neu setzen. Ist ein Bild älter als `MAX_SCREENSHOT_AGE_DAYS` Tage, nennt
 die Ausgabe es mit Datum als Hinweis; ein Eintrag ohne Treffer ist ein
 Problem. Beide Einträge gehören zusammen, einer allein bricht mit Exit-Code 2
 ab.
@@ -648,8 +661,27 @@ Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
 Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
 zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
 Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
-`LINKS_ONLY`, Screenshots und `CODE_VARIABLES` prüft `--run` nur ohne
-Pfadangabe, also beim Lauf über die ganze Config.
+`LINKS_ONLY`, Screenshots, `DEPENDS` und `CODE_VARIABLES` prüft `--run` nur
+ohne Pfadangabe, also beim Lauf über die ganze Config.
+
+**Abhängige Dateien (`DEPENDS`, `DEPENDS_HINT`):** Manche Dateien müssen einer
+anderen bald nach deren Änderung folgen, etwa eine Übersetzung ihrem Original
+oder eine erzeugte Vorschau ihrer Quelle. Ein Eintrag
+`"<basis>|<abhängig>|<tage>|<grund>"` vergleicht die letzten Änderungen beider
+Pfade; die Basis darf ein Ordner sein. Die Zeiten kommen aus git wie bei den
+Screenshots: Commit-Zeit, uncommittete und gestagte Änderungen zählen als
+„jetzt“. Landen beide im selben Commit, ist alles in Ordnung.
+
+| Stand | Ergebnis |
+|---|---|
+| Abhängige Datei gleich alt oder jünger | in Ordnung |
+| Basis jünger, Frist (`<tage>` ab der Basisänderung) läuft noch | Hinweis |
+| Basis jünger, Frist vorbei; bei `0` sofort | Problem, bei `DEPENDS_HINT` Hinweis |
+| Basis oder abhängige Datei fehlt | Problem |
+
+Die Meldung nennt den Befehl, der die Änderungen der Basis zeigt. Eine
+belanglose Änderung der Basis, etwa ein Tippfehler, verlangt trotzdem, die
+abhängige Datei anzufassen; dafür ist die Frist da.
 
 #### Doku-Abgleich zwischen zwei Ständen (`--changes`, Versuch)
 

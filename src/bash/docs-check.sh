@@ -11,8 +11,8 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS, CODE_VARIABLES,
-# INTERNAL_VARIABLES); der Name wird aus dem
+# MAX_ALERTS, REQUIRED, SCREENSHOTS, MAX_SCREENSHOT_AGE_DAYS, DEPENDS,
+# DEPENDS_HINT, CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -98,6 +98,8 @@ MAX_ALERTS=""
 REQUIRED=()
 SCREENSHOTS=()
 MAX_SCREENSHOT_AGE_DAYS=""
+DEPENDS=()
+DEPENDS_HINT=()
 CODE_VARIABLES=()
 INTERNAL_VARIABLES=()
 
@@ -255,9 +257,10 @@ EOF
 )
 
 # Optional: Screenshots, deren Alter geprüft wird (Datei, Ordner oder Muster;
-# ohne von git ignorierte Bilder). Maßgeblich ist das Änderungsdatum der
-# Datei. Ist ein Bild älter als MAX_SCREENSHOT_AGE_DAYS Tage, erscheint ein
-# Hinweis; die Prüfung scheitert daran nicht. Beide Einträge gehören zusammen.
+# ohne von git ignorierte Bilder). Maßgeblich ist der letzte Commit, der das
+# Bild ändert; uncommittete Bilder gelten als neu. Ist ein Bild älter als
+# MAX_SCREENSHOT_AGE_DAYS Tage, erscheint ein Hinweis; die Prüfung scheitert
+# daran nicht. Beide Einträge gehören zusammen.
 SCREENSHOTS=(
 EOF
     if [[ -d docs/images ]]; then
@@ -266,6 +269,18 @@ EOF
     cat <<EOF
 )
 MAX_SCREENSHOT_AGE_DAYS=""
+
+# Optional: Dateien, die einer anderen bald nach deren Änderung folgen müssen,
+# je "<basis>|<abhängig>|<tage>|<grund>" (z. B. Übersetzung oder erzeugte
+# Vorschau). Ändert sich die Basis nach der abhängigen Datei, ist das ein
+# Hinweis, nach <tage> Tagen ein Problem; 0 heißt: im selben Commit. Zeiten
+# kommen aus git, uncommittete Änderungen zählen als jetzt. Die Basis darf ein
+# Ordner sein. DEPENDS_HINT: gleiches Format, auch überfällig nur ein Hinweis.
+DEPENDS=(
+    # "README.md|README.de.md|3|deutsche Fassung"
+)
+DEPENDS_HINT=(
+)
 
 # Optional: Code (Datei, Ordner oder Muster), dessen Umgebungsvariablen
 # dokumentiert sein müssen. Jede Variable, die der Code dort ausdrücklich
@@ -307,12 +322,12 @@ loadConfig() {
 
 # Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
 # MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
-# REQUIRED, LINKS_ONLY, SCREENSHOTS und CODE_VARIABLES.
+# REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS und CODE_VARIABLES.
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
 #   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
-#   $3    - "true", um REQUIRED, LINKS_ONLY, SCREENSHOTS und CODE_VARIABLES zu pruefen
+#   $3    - "true", um REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS und CODE_VARIABLES zu pruefen
 #   $4... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
@@ -345,6 +360,12 @@ runCheck() {
         if [[ -n "${MAX_SCREENSHOT_AGE_DAYS}" ]]; then
             args+=(--max-screenshot-age "${MAX_SCREENSHOT_AGE_DAYS}")
         fi
+        for entry in "${DEPENDS[@]+"${DEPENDS[@]}"}"; do
+            args+=(--depends "${entry}")
+        done
+        for entry in "${DEPENDS_HINT[@]+"${DEPENDS_HINT[@]}"}"; do
+            args+=(--depends-hint "${entry}")
+        done
         for entry in "${CODE_VARIABLES[@]+"${CODE_VARIABLES[@]}"}"; do
             args+=(--code-variables "${entry}")
         done
