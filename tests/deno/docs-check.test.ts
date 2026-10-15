@@ -862,6 +862,117 @@ Deno.test("Quittung: gilt bis zum nächsten Commit der Basis", () => {
   }
 });
 
+Deno.test("Sprachfassungen: Gliederung und übernommene Teile je Abschnitt", () => {
+  const repo = Deno.makeTempDirSync({ prefix: "docs-check-translation-" });
+  new Deno.Command("git", { args: ["-C", repo, "init", "-q"] }).outputSync();
+  const english = [
+    "# App",
+    "",
+    "English · [Deutsch](README.de.md)",
+    "",
+    "## Setup",
+    "",
+    "Run `make dev` and read the [guide](docs/guide.md) and the",
+    "[provider",
+    "declaration](LICENSING.md). See [License](#license).",
+    "",
+    "```mermaid",
+    "flowchart LR",
+    "  a[Browser] --> b[Server]",
+    "```",
+    "",
+    "```bash",
+    "make dev",
+    "```",
+    "",
+    "## License",
+    "",
+    "Licensed under the [EUPL](LICENSE).",
+    "",
+  ].join("\n");
+  const german = [
+    "# App",
+    "",
+    "[English](README.md) · Deutsch",
+    "",
+    "## Einrichten",
+    "",
+    "Starte `make dev` und lies die [Anleitung](docs/guide.md) und die",
+    "[Anbieter-",
+    "erklärung](LICENSING.md). Siehe [Lizenz](#lizenz).",
+    "",
+    "```mermaid",
+    "flowchart LR",
+    "  a[Browser] --> b[Dienst]",
+    "```",
+    "",
+    "```bash",
+    "make dev",
+    "```",
+    "",
+    "## Lizenz",
+    "",
+    "Steht unter der [EUPL](LICENSE).",
+    "",
+  ].join("\n");
+  write(repo, "ok/README.md", english);
+  write(repo, "ok/README.de.md", german);
+  // Ein Link fehlt, ein Absatz mehr, anderer Codeblock.
+  write(repo, "drift/README.md", english);
+  write(
+    repo,
+    "drift/README.de.md",
+    german.replace(" und die\n[Anbieter-\nerklärung](LICENSING.md)", ".\n\nNeuer Absatz")
+      .replace("```bash\nmake dev", "```bash\nmake start"),
+  );
+  // Ein Abschnitt mehr: die Gliederung weicht ab.
+  write(repo, "toc/README.md", english);
+  write(repo, "toc/README.de.md", german.replace("## Lizenz", "## Extra\n\nText.\n\n## Lizenz"));
+  write(repo, "single/README.md", english);
+  new Deno.Command("git", { args: ["-C", repo, "add", "-A"] }).outputSync();
+  commitAt(repo, daysAgo(1));
+  try {
+    const ok = run("--root", repo, "--translation", "ok/README.md|ok/README.de.md|deutsch");
+    assert(ok.code === 0, `gleiche Fassungen bestehen:\n${ok.output}`);
+    assert(
+      lineFor(ok.output, "ok/README.md ↔ ok/README.de.md").includes("gleich gegliedert"),
+      `Übersetzte Anker, Sprachzeile, Mermaid und umbrochene Links zählen nicht:\n${ok.output}`,
+    );
+
+    const drift = run("--root", repo, "--translation", "drift/README.md|drift/README.de.md");
+    assert(drift.code === 1, `Abweichung ist ein Problem:\n${drift.output}`);
+    assert(
+      lineFor(drift.output, "Link nur in drift/README.md").includes("LICENSING.md"),
+      `fehlender Link genannt:\n${drift.output}`,
+    );
+    assert(lineFor(drift.output, "Absätze: 3 gegen 4") !== "", `Absätze gezählt:\n${drift.output}`);
+    assert(
+      lineFor(drift.output, "Codeblöcke weichen ab") !== "",
+      `geänderter Codeblock genannt:\n${drift.output}`,
+    );
+
+    const toc = run("--root", repo, "--translation", "toc/README.md|toc/README.de.md");
+    assert(toc.code === 1, `andere Gliederung ist ein Problem:\n${toc.output}`);
+    assert(
+      lineFor(toc.output, "Gliederung weicht ab").includes(
+        "toc/README.de.md (4): # App · ## Einrichten · ## Extra · ## Lizenz",
+      ),
+      `beide Gliederungen genannt:\n${toc.output}`,
+    );
+
+    const single = run("--root", repo, "--translation", "single/README.md|single/README.de.md");
+    assert(
+      single.code === 1 && lineFor(single.output, "single/README.de.md fehlt") !== "",
+      `fehlende Fassung ist ein Problem:\n${single.output}`,
+    );
+
+    const same = run("--root", repo, "--translation", "ok/README.md|./ok/README.md");
+    assert(same.code === 2, `Original gleich Übersetzung ist ein Fehler:\n${same.output}`);
+  } finally {
+    Deno.removeSync(repo, { recursive: true });
+  }
+});
+
 Deno.test("Aufräumen", () => {
   Deno.removeSync(root, { recursive: true });
 });
