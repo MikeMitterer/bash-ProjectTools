@@ -99,9 +99,14 @@ printConfigExample() {
     local package_root
     package_root="$(detectPackageRoot)"
 
+    # Zeilenweise statt "mapfile -t" — mapfile gibt es erst ab Bash 4
+    # (macOS: /bin/bash 3.2).
     local entries=()
+    local entry
     if [[ -n "${package_root}" ]]; then
-        mapfile -t entries < <(detectLocalPackages "${package_root}")
+        while IFS= read -r entry; do
+            entries+=("${entry}")
+        done < <(detectLocalPackages "${package_root}")
     fi
 
     cat <<EOF

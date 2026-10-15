@@ -283,6 +283,19 @@ testBeispielConfigIstSourcebar() {
     teardownFixture
 }
 
+testBeispielConfigSchlaegtLokalesRepoVor() {
+    setupFixture
+    local generated="${fixture}/generated.conf.sh"
+    mkdir -p "${fixture}/dev/DevWeb/Production/${PKG_NAME##*/}"
+    ( cd "${fixture}/app" && DEV_LOCAL="${fixture}/dev" "${SCRIPT_UNDER_TEST}" --example ) \
+        > "${generated}" 2>/dev/null
+
+    # shellcheck disable=SC2016  # ${DEV_LOCAL} soll woertlich in der Config stehen
+    assertThat "--example: schlaegt das Repo unter DEV_LOCAL vor" \
+        grep -qF "\"${PKG_NAME}=\${DEV_LOCAL}/DevWeb/Production/${PKG_NAME##*/}\"" "${generated}"
+    teardownFixture
+}
+
 runAll() {
     echo
     echo -e "${LIGHT_BLUE}pkg-link.sh${NC}"
@@ -297,6 +310,7 @@ runAll() {
     testUnlinkOhneLinkIstFolgenlos
     testOhneArgumentKommtHilfe
     testBeispielConfigIstSourcebar
+    testBeispielConfigSchlaegtLokalesRepoVor
 
     echo
     if [[ ${tests_failed} -eq 0 ]]; then

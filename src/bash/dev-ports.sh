@@ -173,6 +173,21 @@ isValidPort() {
     [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 ))
 }
 
+# Liest stdin zeilenweise in das Array mit dem uebergebenen Namen — Ersatz fuer
+# "mapfile -t", das es erst ab Bash 4 gibt (macOS: /bin/bash 3.2). Leere
+# Eingabe ergibt ein leeres Array.
+#
+# Params:
+#   $1 - Name des Ziel-Arrays (nur interne, feste Namen — wird per eval gesetzt)
+readLinesInto() {
+    local -r _ARRAY="$1"
+    local _LINE
+    eval "${_ARRAY}=()"
+    while IFS= read -r _LINE || [[ -n "${_LINE}" ]]; do
+        eval "${_ARRAY}+=(\"\${_LINE}\")"
+    done
+}
+
 # Gibt die PIDs aller Prozesse aus, die auf dem Port lauschen (eine je Zeile).
 #
 # Params:
@@ -308,7 +323,7 @@ showPorts() {
     showOvermind
     for _PORT in "${PORTS[@]}"; do
         local _PIDS=()
-        mapfile -t _PIDS < <(listenerPids "${_PORT}")
+        readLinesInto _PIDS < <(listenerPids "${_PORT}")
         if [[ ${#_PIDS[@]} -eq 0 ]]; then
             echo -e "  ${GREEN}✓${NC} ${_PORT} frei"
             continue
@@ -366,7 +381,7 @@ PY
 # Zeigt overmind-Reste dieses Projekts.
 showOvermind() {
     local _PIDS=()
-    mapfile -t _PIDS < <(overmindPids)
+    readLinesInto _PIDS < <(overmindPids)
     if [[ ${#_PIDS[@]} -eq 0 ]]; then
         echo -e "  ${GREEN}✓${NC} overmind laeuft nicht"
     else
@@ -388,7 +403,7 @@ showOvermind() {
 #   0 wenn nichts mehr laeuft, 1 sonst
 releaseOvermind() {
     local _PIDS=()
-    mapfile -t _PIDS < <(overmindPids)
+    readLinesInto _PIDS < <(overmindPids)
     local _TARGETS=()
     local _PID
     if [[ ${#_PIDS[@]} -eq 0 ]]; then
@@ -398,10 +413,10 @@ releaseOvermind() {
         for _PID in "${_PIDS[@]}"; do
             describeProcess "${_PID}" "$(processCwd "${_PID}")"
             local _DESCENDANTS=()
-            mapfile -t _DESCENDANTS < <(descendantPids "${_PID}")
-            _TARGETS+=("${_DESCENDANTS[@]}" "${_PID}")
+            readLinesInto _DESCENDANTS < <(descendantPids "${_PID}")
+            _TARGETS+=(${_DESCENDANTS[@]+"${_DESCENDANTS[@]}"} "${_PID}")
         done
-        mapfile -t _TARGETS < <(printf '%s\n' "${_TARGETS[@]}" | awk '!SEEN[$0]++')
+        readLinesInto _TARGETS < <(printf '%s\n' "${_TARGETS[@]}" | awk '!SEEN[$0]++')
     fi
 
     if [[ "${DRY_RUN}" == true ]]; then
@@ -436,7 +451,7 @@ releaseOvermind() {
 releasePort() {
     local -r _PORT="$1"
     local _PIDS=()
-    mapfile -t _PIDS < <(listenerPids "${_PORT}")
+    readLinesInto _PIDS < <(listenerPids "${_PORT}")
     if [[ ${#_PIDS[@]} -eq 0 ]]; then
         echo -e "  ${GREEN}✓${NC} ${_PORT} ist frei"
         return 0
@@ -457,8 +472,8 @@ releasePort() {
             _SKIPPED=1
         else
             local _DESCENDANTS=()
-            mapfile -t _DESCENDANTS < <(descendantPids "${_PID}")
-            _TARGETS+=("${_DESCENDANTS[@]}" "${_PID}")
+            readLinesInto _DESCENDANTS < <(descendantPids "${_PID}")
+            _TARGETS+=(${_DESCENDANTS[@]+"${_DESCENDANTS[@]}"} "${_PID}")
             if [[ ${#_DESCENDANTS[@]} -gt 0 ]]; then
                 echo -e "        ${BLUE}ℹ${NC} mit ${#_DESCENDANTS[@]} Kindprozess(en): ${_DESCENDANTS[*]}"
             fi
@@ -470,7 +485,7 @@ releasePort() {
     fi
     # Ein uvicorn-Reloader und sein Worker lauschen beide; der Worker steht
     # dann als Lauscher und als Kind in der Liste.
-    mapfile -t _TARGETS < <(printf '%s\n' "${_TARGETS[@]}" | awk '!SEEN[$0]++')
+    readLinesInto _TARGETS < <(printf '%s\n' "${_TARGETS[@]}" | awk '!SEEN[$0]++')
     if [[ "${DRY_RUN}" == true ]]; then
         echo -e "      ${BLUE}ℹ${NC} Dry-Run — wuerde beenden: ${_TARGETS[*]}"
         return "${_SKIPPED}"
