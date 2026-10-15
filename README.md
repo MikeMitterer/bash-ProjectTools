@@ -455,7 +455,9 @@ Je Markdown-Datei:
 Dazu, wenn die Config es verlangt: **interne Doku** wie `AGENTS.md` nur auf
 tote Links und Anker (`LINKS_ONLY`), ob **Screenshots** älter sind als der
 UI-Code, den sie zeigen (`SCREENSHOTS`), ob **abhängige Dateien** wie Übersetzungen oder erzeugte
-Vorschauen ihrer Basis gefolgt sind (`DEPENDS`) und ob jede
+Vorschauen ihrer Basis gefolgt sind (`DEPENDS`), ob **Sprachfassungen**
+gleich gegliedert sind und dieselben Links und denselben Code enthalten
+(`TRANSLATIONS`) und ob jede
 **Umgebungsvariable, die der Code liest**, in der Doku steht
 (`CODE_VARIABLES`).
 
@@ -594,6 +596,11 @@ DEPENDS=(
 DEPENDS_HINT=(
     "frontend/src/i18n|docs/user-guide.md|30|Bedienelemente im Wortlaut der App"
 )
+
+# Optional: Sprachfassungen, je "<original>|<übersetzung>|<grund>".
+TRANSLATIONS=(
+    "README.md|README.de.md|deutsche Fassung"
+)
 ```
 
 **Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `DEPENDS`, `CODE_VARIABLES`):** Pfade gelten ab dem
@@ -677,7 +684,7 @@ Eine Datei zählt nur, wenn sie **versioniert** ist (eine Datei nur auf der
 Platte fehlt im Repository) und **nicht leer**; eine `.md`-Datei braucht
 zusätzlich mindestens eine Überschrift (`# Titel`) außerhalb von Codeblöcken.
 Fehlt eine Pflichtdatei, ist das ein Problem. Pflichtdateien,
-`LINKS_ONLY`, Screenshots, `DEPENDS` und `CODE_VARIABLES` prüft `--run` nur
+`LINKS_ONLY`, Screenshots, `DEPENDS`, `TRANSLATIONS` und `CODE_VARIABLES` prüft `--run` nur
 ohne Pfadangabe, also beim Lauf über die ganze Config.
 
 **Abhängige Dateien (`DEPENDS`, `DEPENDS_HINT`):** Manche Dateien müssen einer
@@ -696,6 +703,21 @@ Screenshots: Commit-Zeit, uncommittete und gestagte Änderungen zählen als
 | Basis oder abhängige Datei fehlt | Problem |
 
 Die Meldung nennt den Befehl, der die Änderungen der Basis zeigt.
+
+**Sprachfassungen (`TRANSLATIONS`):** `DEPENDS` merkt nur, dass das
+Original jünger ist als die Übersetzung, nicht, ob beide noch dasselbe sagen.
+Ein Eintrag `"<original>|<übersetzung>|<grund>"` vergleicht deshalb den
+Aufbau: dieselbe Folge von Überschriftenebenen und je Abschnitt dieselben
+Linkziele und Bilder, denselben Inline-Code, dieselben Codeblöcke, gleich
+viele Hinweisboxen, Anker im Dokument und Absätze. Jede Abweichung ist ein
+Problem; eine Quittung gibt es dafür nicht.
+
+Was sich übersetzen darf, zählt nicht: Linktexte, Anker im eigenen Dokument
+(nur ihre Anzahl), die Sprachzeile mit Links auf die beiden Fassungen und die
+Beschriftungen in Mermaid-Diagrammen (nur die Anzahl der Diagramme). Ob der
+übersetzte Text dasselbe sagt, prüft das nicht; dafür bleibt `DEPENDS` mit
+Frist. Beispiel: Fehlt in `README.de.md` im Abschnitt „Lizenz“ der Link auf
+`LICENSING.md`, meldet die Prüfung „Link nur in README.md: LICENSING.md“.
 
 **Quittung (`--ack`):** Nicht jede Änderung der Basis verlangt etwas, etwa
 ein Tippfehler im README oder eine Codeänderung, die die Oberfläche nicht

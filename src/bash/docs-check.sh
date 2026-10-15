@@ -11,8 +11,8 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, CODE_VARIABLES,
-# INTERNAL_VARIABLES); der Name wird aus dem
+# MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, TRANSLATIONS,
+# CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -104,6 +104,7 @@ SCREENSHOTS=()
 MAX_SCREENSHOT_AGE_DAYS=""
 DEPENDS=()
 DEPENDS_HINT=()
+TRANSLATIONS=()
 FOLLOWER_ARGS=()
 CODE_VARIABLES=()
 INTERNAL_VARIABLES=()
@@ -343,6 +344,19 @@ DEPENDS=(
 # ändern, ohne dass die abhängige Datei etwas nachziehen muss.
 DEPENDS_HINT=(
 )
+
+# Optional: Sprachfassungen mit derselben Gliederung, je
+# "<original>|<übersetzung>|<grund>". Verglichen werden die Überschriften und
+# je Abschnitt Linkziele, Bilder, Inline-Code, Codeblöcke (Mermaid nur als
+# Anzahl), Hinweisboxen und Absätze. Fehlt in einer Fassung ein Teil, ist das
+# ein Problem. Den übersetzten Text selbst prüft das nicht.
+TRANSLATIONS=(
+EOF
+    if [[ -f README.de.md ]]; then
+        printf '    "README.md|README.de.md|deutsche Fassung"\n'
+    fi
+    cat <<EOF
+)
 EOF
 }
 
@@ -400,12 +414,13 @@ runAck() {
 
 # Startet die Deno-Pruefung mit EXCLUDE, FORBIDDEN, KNOWN_VARIABLES und
 # MAX_ALERTS aus der Config; beim Lauf ueber das ganze Projekt auch mit
-# REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS und CODE_VARIABLES.
+# REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS, TRANSLATIONS und CODE_VARIABLES.
 #
 # Params:
 #   $1    - "true" fuer ausfuehrliche Ausgabe
 #   $2    - Name der geladenen Config fuer die Kopfzeile, leer ohne Config
-#   $3    - "true", um REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS und CODE_VARIABLES zu pruefen
+#   $3    - "true", um REQUIRED, LINKS_ONLY, SCREENSHOTS, DEPENDS, TRANSLATIONS und
+#           CODE_VARIABLES zu pruefen
 #   $4... - zu pruefende Dateien oder Ordner
 runCheck() {
     local verbose="$1"
@@ -434,6 +449,9 @@ runCheck() {
         done
         collectFollowerArgs
         args+=("${FOLLOWER_ARGS[@]+"${FOLLOWER_ARGS[@]}"}")
+        for entry in "${TRANSLATIONS[@]+"${TRANSLATIONS[@]}"}"; do
+            args+=(--translation "${entry}")
+        done
         for entry in "${CODE_VARIABLES[@]+"${CODE_VARIABLES[@]}"}"; do
             args+=(--code-variables "${entry}")
         done

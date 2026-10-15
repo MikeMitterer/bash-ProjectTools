@@ -40,6 +40,10 @@
  *                          Problem (0: im selben Commit). Zeiten aus git;
  *                          uncommittete Änderungen zählen als „jetzt“
  *   --depends-hint EINTRAG Wie --depends, aber auch überfällig nur ein Hinweis
+ *   --translation ORIGINAL|ÜBERSETZUNG[|GRUND]
+ *                          Sprachfassungen vergleichen: dieselbe Gliederung
+ *                          und je Abschnitt dieselben Linkziele, Bilder,
+ *                          Inline-Code, Codeblöcke, Hinweisboxen und Absätze
  *   --ack PFAD             Statt der Prüfung: offene Rückstände dieser
  *                          abhängigen Datei oder dieses Ordners quittieren
  *                          (schreibt .docs-check.ack; braucht --allow-write)
@@ -1881,6 +1885,216 @@ export function acknowledge(
 
 // ------------------------------------------------------------ Kommandozeile
 
+// ------------------------------------------------------------ Sprachfassungen
+
+/** Ein Paar aus TRANSLATIONS: Original und Übersetzung mit derselben Gliederung. */
+export interface Translation {
+  original: string;
+  translation: string;
+  reason: string;
+}
+
+export function parseTranslation(entry: string): Translation | string {
+  const [original, translation, ...reason] = entry.split("|").map((part) => part.trim());
+  if (!original || !translation) return `Sprachfassung braucht ORIGINAL|ÜBERSETZUNG: ${entry}`;
+  if (normalize(original) === normalize(translation)) {
+    return `Original und Übersetzung sind dieselbe Datei: ${entry}`;
+  }
+  return {
+    original: normalize(original),
+    translation: normalize(translation),
+    reason: reason.join("|").trim(),
+  };
+}
+
+/**
+ * Was eine Übersetzung unverändert übernehmen muss, je Abschnitt. Abschnitt 0
+ * ist alles vor der ersten Überschrift. Links auf die eigene oder die andere
+ * Sprachfassung (Sprachzeile) zählen nicht; Anker im eigenen Dokument nur als
+ * Anzahl, weil ihr Name aus der übersetzten Überschrift entsteht.
+ */
+export interface Section {
+  heading: string;
+  level: number;
+  line: number;
+  links: string[];
+  anchors: number;
+  code: string[];
+  blocks: string[];
+  alerts: number;
+  paragraphs: number;
+}
+
+export function outline(text: string, path: string, pair: string[]): Section[] {
+  const home = directoryOf(path);
+  const sections: Section[] = [];
+  const open = (heading: string, level: number, line: number) =>
+    sections.push({
+      heading,
+      level,
+      line,
+      links: [],
+      anchors: 0,
+      code: [],
+      blocks: [],
+      alerts: 0,
+      paragraphs: 0,
+    });
+  open("", 0, 1);
+  // Links und Inline-Code je Absatz auswerten: Linktext darf umbrechen.
+  let paragraph: string[] = [];
+  const flush = () => {
+    if (!paragraph.length) return;
+    const section = sections[sections.length - 1];
+    section.paragraphs++;
+    const joined = paragraph.join(" ");
+    paragraph = [];
+    if (/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/.test(joined)) section.alerts++;
+    for (const match of joined.matchAll(LINK)) {
+      const link = match[1] ?? match[2] ?? match[3] ?? match[4];
+      if (link.startsWith("#")) {
+        section.anchors++;
+        continue;
+      }
+      if (!/^[a-z][a-z0-9+.-]*:/i.test(link)) {
+        const linked = join(home, safeDecode(link.split("#")[0]));
+        if (pair.includes(linked)) continue;
+      }
+      section.links.push(link);
+    }
+    for (const match of joined.matchAll(/`([^`]+)`/g)) section.code.push(match[1]);
+  };
+  let fence: { info: string; lines: string[] } | undefined;
+  text.split("\n").forEach((line, index) => {
+    const marker = line.match(FENCE);
+    if (marker) {
+      if (fence) {
+        // Diagramme tragen übersetzte Beschriftungen; dort zählt nur, dass es sie gibt.
+        const content = /^mermaid\b/i.test(fence.info) ? "" : fence.lines.join("\n").trim();
+        sections[sections.length - 1].blocks.push(`${fence.info}\n${content}`);
+        fence = undefined;
+      } else {
+        flush();
+        sections[sections.length - 1].paragraphs++;
+        fence = { info: line.trim().slice(marker[1].length).trim(), lines: [] };
+      }
+      return;
+    }
+    if (fence) {
+      fence.lines.push(line);
+      return;
+    }
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flush();
+      open(heading[2].trim(), heading[1].length, index + 1);
+      return;
+    }
+    if (!line.trim() || line.trim() === ">") flush();
+    else paragraph.push(line.trim());
+  });
+  flush();
+  return sections;
+}
+
+/** Einträge, die in `left` öfter vorkommen als in `right`. */
+function surplus(left: string[], right: string[]): string[] {
+  const rest = [...right];
+  return left.filter((item) => {
+    const index = rest.indexOf(item);
+    if (index < 0) return true;
+    rest.splice(index, 1);
+    return false;
+  });
+}
+
+export interface TranslationResult {
+  translation: Translation;
+  /** Datei fehlt oder ist nicht versioniert. */
+  missing?: string;
+  findings: Finding[];
+}
+
+/**
+ * Vergleicht eine Übersetzung mit ihrem Original: dieselbe Folge von
+ * Überschriftenebenen und je Abschnitt dieselben Linkziele, Bilder,
+ * Inline-Code, Codeblöcke, Hinweisboxen und Absätze. Den übersetzten Text
+ * selbst prüft das nicht; es findet fehlende oder zusätzliche Teile.
+ */
+export function checkTranslation(project: Project, translation: Translation): TranslationResult {
+  const { original, translation: other } = translation;
+  for (const path of [original, other]) {
+    if (!project.files.includes(path)) {
+      return { translation, missing: path, findings: [] };
+    }
+  }
+  const pair = [original, other];
+  const left = outline(readText(`${project.root}/${original}`), original, pair);
+  const right = outline(readText(`${project.root}/${other}`), other, pair);
+  const findings: Finding[] = [];
+  const levels = (sections: Section[]) => sections.slice(1).map((section) => section.level);
+  if (levels(left).join() !== levels(right).join()) {
+    // Welcher Abschnitt fehlt, lässt sich bei gleichen Ebenen nicht sicher
+    // sagen; beide Gliederungen nebeneinander zeigen es dem Leser.
+    const describe = (sections: Section[], path: string) =>
+      `${path} (${sections.length - 1}): ${
+        sections.slice(1).map((section) => `${"#".repeat(section.level)} ${section.heading}`)
+          .join(" · ")
+      }`;
+    findings.push({
+      lines: [],
+      level: "problem",
+      message: `Gliederung weicht ab: ${describe(left, original)} | ${describe(right, other)}`,
+      advice: "Fehlende oder zusätzliche Abschnitte in einer der Fassungen nachziehen.",
+    });
+    return { translation, findings };
+  }
+  left.forEach((section, index) => {
+    const counterpart = right[index];
+    const name = index
+      ? `Abschnitt „${section.heading}“ / „${counterpart.heading}“`
+      : "Vor der ersten Überschrift";
+    const lines = [section.line, counterpart.line];
+    const report = (message: string) =>
+      findings.push({
+        lines: [],
+        level: "problem",
+        message: `${name} (Zeile ${lines[0]} / ${lines[1]}): ${message}`,
+        advice: "Beide Fassungen auf denselben Inhalt bringen; übernommen werden " +
+          "Links, Code, Hinweisboxen und Absätze.",
+      });
+    const compare = (label: string, a: string[], b: string[]) => {
+      const onlyLeft = surplus(a, b);
+      const onlyRight = surplus(b, a);
+      if (onlyLeft.length) report(`${label} nur in ${original}: ${onlyLeft.join(", ")}`);
+      if (onlyRight.length) report(`${label} nur in ${other}: ${onlyRight.join(", ")}`);
+    };
+    compare("Link", section.links, counterpart.links);
+    compare(
+      "Code",
+      section.code.map((code) => `\`${code}\``),
+      counterpart.code.map((code) => `\`${code}\``),
+    );
+    const changed = surplus(section.blocks, counterpart.blocks).length +
+      surplus(counterpart.blocks, section.blocks).length;
+    if (changed) {
+      report(
+        `Codeblöcke weichen ab (${section.blocks.length} gegen ${counterpart.blocks.length}; ` +
+          "außer Mermaid muss der Inhalt gleich sein)",
+      );
+    }
+    const counts: Array<[string, number, number]> = [
+      ["Anker im Dokument", section.anchors, counterpart.anchors],
+      ["Hinweisboxen", section.alerts, counterpart.alerts],
+      ["Absätze", section.paragraphs, counterpart.paragraphs],
+    ];
+    for (const [label, a, b] of counts) {
+      if (a !== b) report(`${label}: ${a} gegen ${b}`);
+    }
+  });
+  return { translation, findings };
+}
+
 interface Options {
   root: string;
   forbidden: Forbidden[];
@@ -1893,6 +2107,7 @@ interface Options {
   /** Quittieren statt prüfen; leer: alle offenen Rückstände. */
   ack?: string[];
   dependencies: Dependency[];
+  translations: Translation[];
   codeVariables: string[];
   internalVariables: Array<{ name: string; reason: string }>;
   changes?: { base: string; head: string };
@@ -1914,6 +2129,7 @@ function parseArgs(args: string[]): Options | string {
     linksOnlyInputs: [],
     screenshots: [],
     dependencies: [],
+    translations: [],
     codeVariables: [],
     internalVariables: [],
     uiCatalogs: [],
@@ -1978,6 +2194,10 @@ function parseArgs(args: string[]): Options | string {
         const dependency = parseDependency(value(), arg === "--depends-hint");
         if (typeof dependency === "string") return dependency;
         options.dependencies.push(dependency);
+      } else if (arg === "--translation") {
+        const translation = parseTranslation(value());
+        if (typeof translation === "string") return translation;
+        options.translations.push(translation);
       } else if (arg === "--max-screenshot-age") {
         return "--max-screenshot-age entfällt: Screenshots werden mit dem UI-Code verglichen, " +
           'den sie zeigen (SCREENSHOTS: "<ui-code>|<bilder>|<grund>")';
@@ -1992,9 +2212,9 @@ function parseArgs(args: string[]): Options | string {
   }
   if (
     !options.inputs.length && !options.linksOnlyInputs.length && !options.required.length &&
-    !options.screenshots.length && !options.dependencies.length
+    !options.screenshots.length && !options.dependencies.length && !options.translations.length
   ) {
-    return "keine Datei, kein Ordner, keine Pflichtdatei, kein Screenshot und keine Abhängigkeit angegeben";
+    return "keine Datei, kein Ordner, keine Pflichtdatei, kein Screenshot, keine Abhängigkeit und keine Sprachfassung angegeben";
   }
   if (options.codeVariables.length && !options.inputs.length) {
     return "--code-variables braucht Dokumente, in denen die Variablen stehen (DOCS)";
@@ -2038,7 +2258,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot UI-CODE|BILDER[|GRUND]] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--ack PFAD | --ack-all] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot UI-CODE|BILDER[|GRUND]] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--translation ORIGINAL|ÜBERSETZUNG[|GRUND]] [--ack PFAD | --ack-all] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -2278,6 +2498,45 @@ function main(args: string[]): number {
     dependencies.forEach((result, index) => printFollower(result, pairs[index], pairWidth, false));
   }
 
+  // Sprachfassungen: je Paar dieselbe Gliederung und dieselben übernommenen Teile.
+  const translations = options.translations.map((translation) =>
+    checkTranslation(project, translation)
+  );
+  if (translations.length) {
+    console.log(`\n${paint("1", `Sprachfassungen: ${translations.length}${source}`)}\n`);
+    const pairs = translations.map(({ translation }) =>
+      `${translation.original} ↔ ${translation.translation}`
+    );
+    const pairWidth = Math.max(0, ...pairs.map((pair) => pair.length));
+    translations.forEach(({ translation, missing, findings }, index) => {
+      const name = pairs[index].padEnd(pairWidth);
+      const reason = translation.reason ? ` · ${translation.reason}` : "";
+      const advise = (text: string) => console.log(`${" ".repeat(pairWidth + 7)}→ ${text}`);
+      if (missing) {
+        console.log(
+          `  ${paint("31", "✗")} ${name}   ${
+            paint("31", `${missing} fehlt oder ist nicht in git`)
+          }`,
+        );
+        advise("Datei anlegen und committen oder Eintrag in TRANSLATIONS korrigieren.");
+        return;
+      }
+      if (!findings.length) {
+        console.log(`  ${paint("32", "✓")} ${name}   gleich gegliedert${reason}`);
+        return;
+      }
+      console.log(
+        `  ${paint("31", "✗")} ${name}   ${
+          paint("31", count(findings.length, "Abweichung", "Abweichungen"))
+        }${reason}`,
+      );
+      for (const finding of findings) advise(finding.message);
+      advise(findings[0].advice);
+    });
+  }
+  const translationProblems =
+    translations.filter((result) => result.missing || result.findings.length).length;
+
   // Umgebungsvariablen aus dem Code: je Variable, wo die Doku sie nennt.
   const codeVariables = options.codeVariables.length
     ? checkCodeVariables(
@@ -2383,13 +2642,16 @@ function main(args: string[]): number {
       ? [count(screenshots.results.length, "Screenshot", "Screenshots")]
       : []),
     ...(dependencies.length ? [count(dependencies.length, "Abhängigkeit", "Abhängigkeiten")] : []),
+    ...(translations.length
+      ? [count(translations.length, "Sprachfassung", "Sprachfassungen")]
+      : []),
     ...(options.codeVariables.length
       ? [count(codeVariables.results.length, "Code-Variable", "Code-Variablen")]
       : []),
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
     failedRequired + screenshots.missing.length + codeVariables.missing.length +
-    undocumented.length + followers.filter(dependencyProblem).length;
+    undocumented.length + followers.filter(dependencyProblem).length + translationProblems;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
     codeVariables.staleInternal.length + followers.filter(dependencyOpen).length;
