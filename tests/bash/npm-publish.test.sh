@@ -288,6 +288,7 @@ runScript() {
 #
 # Returns:
 #   0 wenn ein PTY-Lauf zustande kam, sonst 127
+# shellcheck disable=SC2030,SC2031  # die Exporte gelten bewusst nur in der Subshell
 runScriptUnderPty() {
     command -v script >/dev/null 2>&1 || return 127
 

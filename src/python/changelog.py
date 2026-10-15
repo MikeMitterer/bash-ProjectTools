@@ -19,9 +19,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+from projecttools.git_access.changelog import GitRepository
 from projecttools.ui.colors import HelpFormatter, Theme
 from projecttools.ui.colors import styled as styled
-from projecttools.git_access.changelog import GitRepository
 
 _ = gettext.translation(
     "changelog", localedir=Path(__file__).parent / "locales", fallback=True
