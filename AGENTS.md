@@ -1,4 +1,4 @@
-# ProjectTools — Codex Context
+# ProjectTools — Projektregeln
 
 > Ergänzt den systemweiten `code-conventions`-Skill mit projektspezifischem Kontext.
 > Konventionen und Library-Details → siehe `code-conventions`-Skill.
