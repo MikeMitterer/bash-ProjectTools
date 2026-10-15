@@ -513,6 +513,8 @@ deno run --allow-read --allow-run=git src/deno/docs-check.ts --as README.md /pfa
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
+# ─── Welche Dokumente geprüft werden ───────────────────────────────────────────
+
 # Inhaltlich zu prüfende Dokumente: Datei, Ordner (alle *.md darin) oder Muster.
 DOCS=(
     "README.md"
@@ -533,6 +535,8 @@ EXCLUDE=(
     "docs/**/draft-*.md"
 )
 
+# ─── Was in den Dokumenten stehen darf ─────────────────────────────────────────
+
 # Text oder regulärer Ausdruck, je optional mit "|<grund>".
 # Ein Eintrag je Zusammenhang, damit jeder seinen eigenen Grund hat.
 FORBIDDEN=(
@@ -542,13 +546,28 @@ FORBIDDEN=(
     "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
 )
 
+# Optional: höchstens so viele farbige Hinweisboxen je Dokument.
+MAX_ALERTS=2
+
+# ─── Variablen zwischen Doku und Code ──────────────────────────────────────────
+
 # Variablen, die keine versionierte Datei nennt, je optional mit "|<grund>".
 KNOWN_VARIABLES=(
     "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
 )
 
-# Optional: höchstens so viele farbige Hinweisboxen je Dokument.
-MAX_ALERTS=2
+# Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
+CODE_VARIABLES=(
+    "api/src"
+    "docker"
+)
+
+# Vom Code gelesen, bewusst nicht dokumentiert, je mit "|<grund>".
+INTERNAL_VARIABLES=(
+    "DEBUG_SQL|nur für die Fehlersuche im Code"
+)
+
+# ─── Dateien, die es geben muss ────────────────────────────────────────────────
 
 # Dateien, die es geben muss, je optional mit "|<grund>".
 REQUIRED=(
@@ -557,6 +576,8 @@ REQUIRED=(
     "docs/user-guide.md|im README verlinkt"
     "./docs/**/*-design.md"                  # Muster: mindestens ein Treffer
 )
+
+# ─── Abhängige Dateien und Screenshots ─────────────────────────────────────────
 
 # Optional: Screenshots und der UI-Code, den sie zeigen, je
 # "<ui-code>|<bilder>|<grund>"; UI-Code mit Komma für mehrere Pfade.
@@ -572,17 +593,6 @@ DEPENDS=(
 # Gleiches Format, auch überfällig nur ein Hinweis.
 DEPENDS_HINT=(
     "frontend/src/i18n|docs/user-guide.md|30|Bedienelemente im Wortlaut der App"
-)
-
-# Optional: Code, dessen gelesene Umgebungsvariablen dokumentiert sein müssen.
-CODE_VARIABLES=(
-    "api/src"
-    "docker"
-)
-
-# Vom Code gelesen, bewusst nicht dokumentiert, je mit "|<grund>".
-INTERNAL_VARIABLES=(
-    "DEBUG_SQL|nur für die Fehlersuche im Code"
 )
 ```
 

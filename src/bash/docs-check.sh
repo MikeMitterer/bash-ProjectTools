@@ -153,12 +153,15 @@ printConfigExample() {
 # Anlegen/aktualisieren:  ${APPNAME} --example > ${CONFIG_DISPLAY}
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
-# Pfadangaben in DOCS, EXCLUDE und REQUIRED: relativ zum Projekt-Root,
-# führendes "./" erlaubt. Muster wie in .gitignore:
+# Pfadangaben in DOCS, LINKS_ONLY, EXCLUDE, REQUIRED, CODE_VARIABLES,
+# SCREENSHOTS, DEPENDS und DEPENDS_HINT: relativ zum Projekt-Root, führendes
+# "./" erlaubt. Muster wie in .gitignore:
 #   *    beliebige Zeichen innerhalb eines Ordners   docs/*.md
 #   **   beliebig viele Ordner                       docs/**/*.md, **/README.md
 #   ?    genau ein Zeichen                           docs/v?.md
 # Ordner und Muster treffen nur Dateien, die git nicht ignoriert.
+
+# ─── Welche Dokumente geprüft werden ───────────────────────────────────────────
 
 # Inhaltlich zu prüfende Dokumente: Datei, Ordner (alle *.md darin) oder
 # Muster. Ein Muster ohne Treffer ist ein Problem.
@@ -197,6 +200,8 @@ EOF
     cat <<EOF
 )
 
+# ─── Was in den Dokumenten stehen darf ─────────────────────────────────────────
+
 # Text, der in keinem Dokument aus DOCS stehen darf. Geprüft wird jede
 # Zeile, auch in Codeblöcken; jeder Treffer ist ein Problem (Exit-Code 1).
 # Die Meldung nennt Zeilen, gefundenen Text und den Grund.
@@ -229,6 +234,12 @@ FORBIDDEN=(
     # "/\b99:100\b|\bnobody:users\b/i|Standard-IDs, nicht in Nutzerdoku"
 )
 
+# Optional: höchstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
+# Dokument. Leer oder nicht gesetzt: keine Grenze.
+MAX_ALERTS=""
+
+# ─── Variablen zwischen Doku und Code ──────────────────────────────────────────
+
 # Variablen, die die Doku nennen darf, obwohl sie in keiner versionierten
 # Datei vorkommen, z. B. aus einer eingebundenen, nicht versionierten
 # Bibliothek. Je Eintrag optional mit "|<grund>".
@@ -236,9 +247,26 @@ KNOWN_VARIABLES=(
     # "NO_COLOR|Standard der Kommandozeile, schaltet Farben ab"
 )
 
-# Optional: höchstens so viele farbige Hinweisboxen (> [!WARNING] usw.) je
-# Dokument. Leer oder nicht gesetzt: keine Grenze.
-MAX_ALERTS=""
+# Optional: Code (Datei, Ordner oder Muster), dessen Umgebungsvariablen
+# dokumentiert sein müssen. Jede Variable, die der Code dort ausdrücklich
+# liest (process.env.X, os.environ["X"], getenv("X") u. a.), muss in einem
+# Dokument aus DOCS stehen; sonst ist das ein Problem. Tests zählen nicht.
+CODE_VARIABLES=(
+EOF
+    local code
+    for code in src api backend frontend/src server; do
+        if [[ -d "${code}" ]]; then
+            printf '    # "%s"\n' "${code}"
+        fi
+    done
+    cat <<EOF
+)
+
+# Vom Code gelesen, aber bewusst nicht dokumentiert, je mit "|<grund>".
+INTERNAL_VARIABLES=(
+)
+
+# ─── Dateien, die es geben muss ────────────────────────────────────────────────
 
 # Dateien, die es geben muss, je optional mit "|<grund>". Sie zählen nur,
 # wenn sie versioniert und nicht leer sind; .md-Dateien brauchen mindestens
@@ -263,12 +291,32 @@ EOF
     cat <<EOF
 )
 
+# ─── Abhängige Dateien und Screenshots ─────────────────────────────────────────
+
+# Abhängige Dateien müssen ihrer Basis folgen: Screenshots dem UI-Code,
+# Übersetzungen und Kurzfassungen ihrem Original, erzeugte Dateien ihrer
+# Quelle. Ändert sich die Basis nach der abhängigen Datei, meldet die Prüfung
+# das. Maßgeblich ist der letzte Commit laut git, uncommittete Änderungen
+# zählen als jetzt; Dateidatum und Tagesdatum zählen nicht.
+#
+# Quittieren statt sinnlos anfassen: Verlangt eine Änderung der Basis nichts
+# (Tippfehler im README, Codeänderung ohne sichtbare Folge), die Meldung aus
+# SCREENSHOTS, DEPENDS oder DEPENDS_HINT nach dem Prüfen quittieren:
+#
+#   ${APPNAME} --ack docs/images/dashboard.png
+#   ${APPNAME} --ack docs/images   # ganzer Ordner
+#   ${APPNAME} --ack               # alle offenen
+#
+# Das schreibt je Paar den letzten Commit der Basis nach .docs-check.ack; die
+# Datei mitcommitten. Die Quittung gilt, bis die Basis einen neueren Commit
+# hat, dann kommt die Meldung zurück. Nicht quittieren lassen sich Einträge mit
+# Frist 0 (neu erzeugen) und uncommittete Basen (erst committen).
+
 # Optional: Screenshots und der UI-Code, den sie zeigen, je
 # "<ui-code>|<bilder>|<grund>". UI-Code: Datei, Ordner oder Muster, mehrere
 # mit Komma; Bilder: Datei, Ordner oder Muster (ohne von git ignorierte).
 # Hat sich der UI-Code nach einem Bild geändert, erscheint ein Hinweis; die
-# Prüfung scheitert daran nicht. Zeiten kommen aus git, nicht vom Tagesdatum.
-# Zeigt das Bild die Oberfläche noch richtig: docs-check.sh --ack <bild>.
+# Prüfung scheitert daran nicht.
 SCREENSHOTS=(
 EOF
     if [[ -d docs/images ]]; then
@@ -285,38 +333,15 @@ EOF
 # Optional: Dateien, die einer anderen bald nach deren Änderung folgen müssen,
 # je "<basis>|<abhängig>|<tage>|<grund>" (z. B. Übersetzung oder erzeugte
 # Vorschau). Ändert sich die Basis nach der abhängigen Datei, ist das ein
-# Hinweis, nach <tage> Tagen ein Problem; 0 heißt: im selben Commit. Zeiten
-# kommen aus git, uncommittete Änderungen zählen als jetzt. Die Basis darf ein
-# Ordner, ein Muster oder eine Liste mit Komma sein. DEPENDS_HINT: gleiches
-# Format, auch überfällig nur ein Hinweis.
-#
-# Ist nach einer Änderung der Basis nichts zu tun, quittieren statt die Datei
-# anzufassen: docs-check.sh --ack <abhängig>. Das schreibt den Stand der Basis
-# nach .docs-check.ack (mitcommitten); ändert sich die Basis wieder, kommt der
-# Hinweis zurück. Nicht bei Frist 0 und nicht bei uncommitteter Basis.
+# Hinweis, nach <tage> Tagen ein Problem; 0 heißt: im selben Commit. Die Basis
+# darf ein Ordner, ein Muster oder eine Liste mit Komma sein.
 DEPENDS=(
     # "README.md|README.de.md|3|deutsche Fassung"
 )
+
+# Gleiches Format, auch überfällig nur ein Hinweis: für Basen, die sich oft
+# ändern, ohne dass die abhängige Datei etwas nachziehen muss.
 DEPENDS_HINT=(
-)
-
-# Optional: Code (Datei, Ordner oder Muster), dessen Umgebungsvariablen
-# dokumentiert sein müssen. Jede Variable, die der Code dort ausdrücklich
-# liest (process.env.X, os.environ["X"], getenv("X") u. a.), muss in einem
-# Dokument aus DOCS stehen; sonst ist das ein Problem. Tests zählen nicht.
-CODE_VARIABLES=(
-EOF
-    local code
-    for code in src api backend frontend/src server; do
-        if [[ -d "${code}" ]]; then
-            printf '    # "%s"\n' "${code}"
-        fi
-    done
-    cat <<EOF
-)
-
-# Vom Code gelesen, aber bewusst nicht dokumentiert, je mit "|<grund>".
-INTERNAL_VARIABLES=(
 )
 EOF
 }
