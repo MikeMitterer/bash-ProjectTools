@@ -259,21 +259,23 @@ testNeueConfigEintraege() {
     mkdir -p "${fixture}/shots"
     printf 'png' > "${fixture}/shots/a.png"
     commitAt "2020-01-01T00:00:00" shots/a.png
+    mkdir -p "${fixture}/ui"
+    printf '<template>Ansicht</template>\n' > "${fixture}/ui/view.vue"
+    commitAt "2020-02-01T00:00:00" ui/view.vue
     cat > "${fixture}/new.conf.sh" <<'EOF'
 # shellcheck disable=SC2034
 DOCS=("lib.md")
 LINKS_ONLY=("AGENTS.md")
 FORBIDDEN=("99:100|interne IDs")
 KNOWN_VARIABLES=("LIB_VAR|aus einer Bibliothek")
-SCREENSHOTS=("shots")
-MAX_SCREENSHOT_AGE_DAYS=60
+SCREENSHOTS=("ui|shots|Oberflaeche")
 EOF
     runScript --config new.conf.sh --run
     assertEquals "1" "${rc}" "LINKS_ONLY: toter Link ergibt Exit-Code 1"
     assertOutputContains "AGENTS.md (nur Links)" "LINKS_ONLY: Pruefart genannt"
     assertOutputLacks "interne IDs" "LINKS_ONLY: keine verbotenen Begriffe"
     assertOutputLacks "LIB_VAR" "KNOWN_VARIABLES: Variable gilt als bekannt"
-    assertOutputContains "älter als 60 Tage" "SCREENSHOTS: altes Bild gemeldet"
+    assertOutputContains "Code geändert" "SCREENSHOTS: Bild aelter als der UI-Code gemeldet"
     runScript --config new.conf.sh --run lib.md
     assertEquals "0" "${rc}" "--run mit Pfad: ohne Nur-Link-Dokumente und Screenshots"
     assertOutputLacks "Screenshots" "--run mit Pfad: keine Screenshots"
@@ -300,9 +302,23 @@ EOF
     printf 'DEPENDS=("base.md|dependent.md|3|Uebersetzung")\nDEPENDS_HINT=()\n' >> "${fixture}/depends.conf.sh"
     runScript --config depends.conf.sh --run
     assertEquals "1" "${rc}" "DEPENDS: ueberfaellig ist ein Problem"
+    runScript --config depends.conf.sh --ack dependent.md
+    assertEquals "0" "${rc}" "--ack: quittiert"
+    assertOutputContains "quittiert für Stand" "--ack: Stand genannt"
+    runScript --config depends.conf.sh --run
+    assertEquals "0" "${rc}" "--ack: Quittung hebt das Problem auf"
+    assertOutputContains "quittiert am" "--ack: Quittung in der Pruefung sichtbar"
     runScript --config depends.conf.sh --run README.md
     assertEquals "0" "${rc}" "--run mit Pfad: ohne Abhaengigkeiten"
     assertOutputLacks "Abhängige Dokumente" "--run mit Pfad: keine Abhaengigkeiten"
+}
+
+# Das Alter gegen das Tagesdatum gibt es nicht mehr: Ein gesetzter Wert bricht ab.
+testMaxScreenshotAgeEntfaellt() {
+    printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nMAX_SCREENSHOT_AGE_DAYS=60\n' > "${fixture}/age.conf.sh"
+    runScript --config age.conf.sh --run
+    assertEquals "2" "${rc}" "MAX_SCREENSHOT_AGE_DAYS: Exit-Code 2"
+    assertOutputContains "entfaellt" "MAX_SCREENSHOT_AGE_DAYS: Grund genannt"
 }
 
 # CODE_VARIABLES und INTERNAL_VARIABLES kommen aus der Config an.
@@ -356,6 +372,7 @@ runAll() {
     testMusterInDocsUndExclude
     testNeueConfigEintraege
     testAbhaengigkeitenAusConfig
+    testMaxScreenshotAgeEntfaellt
     testCodeVariablenAusConfig
 
     echo
