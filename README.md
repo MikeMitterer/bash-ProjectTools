@@ -502,7 +502,7 @@ Die Prüfung macht `src/deno/docs-check.ts` (Deno 2), nur lesend, nur `git`,
 ohne Netz. Projektfakten liest sie nur aus versionierten Dateien und nie aus
 Dateien mit Zugangsdaten (`.env` außer Beispieldateien, Schlüssel, Secrets,
 Token u. a.), auch nicht über Makefile-Einbindungen. Agenten rufen sie auch
-direkt auf, etwa der Skill `readme-conventions` für einen Entwurf an anderer
+direkt auf, etwa der Skill `docs-conventions` für einen Entwurf an anderer
 Stelle:
 
 ```bash

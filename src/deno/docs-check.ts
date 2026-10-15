@@ -6,7 +6,7 @@
  * cargo run), Variablen und Repo-Pfade in Code-Formatierung, vergessene
  * Platzhalter und verbotene Begriffe. Gedacht für den Aufruf über
  * `src/bash/docs-check.sh`, das die Projekt-Config liest; Agenten (Skill
- * readme-conventions) rufen es auch direkt auf.
+ * docs-conventions) rufen es auch direkt auf.
  *
  * Aufruf (die Deno-Rechte erzwingen „nur lesen, nur git, kein Netz“):
  *   deno run --allow-read --allow-run=git docs-check.ts [OPTIONEN] DATEI|ORDNER...
