@@ -9,3 +9,5 @@ node_modules/
 # Lokale Bibliotheken (Symlinks, make setup) und Entwicklungs-venv
 .libs/
 .venv/
+/_tickets/
+/.worktrees/
