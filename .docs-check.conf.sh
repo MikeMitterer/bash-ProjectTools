@@ -176,6 +176,7 @@ DEPENDS_HINT=(
     "src/python/py-run.py,src/bash/py-run.sh|docs/tools/py-run.md|30|Werkzeug-Dokument"
     "src/python/projecttools/ui/colors.py|docs/cli-themes.md|30|Theme-Beschreibung"
     "Makefile,requirements-dev.txt,scripts|docs/development.md|30|Befehle und Einrichten"
+    "docs/README.template.md|README.md|30|README folgt der Projektvorlage"
 )
 
 # Optional: Sprachfassungen mit derselben Gliederung, je
