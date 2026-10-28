@@ -133,6 +133,27 @@ testHintsNennenPipx() {
     assertOutputContains "pipx install" "hints: Installation per pipx"
 }
 
+# Zeichen einer Zeichenkette, unabhaengig von der Locale (UTF-8-Folgebytes
+# zaehlen nicht mit).
+charCount() {
+    printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '
+}
+
+# Jede zweispaltige hints-Zeile beginnt die zweite Spalte an derselben
+# Bildschirmspalte, auch mit Umlauten in der Beschriftung.
+testHintsBuendig() {
+    runMake hints
+    local line prefix columns=""
+    while IFS= read -r line; do
+        [[ "${line}" =~ ^(\ +[^\ ]+(\ [^\ ]+)*\ {2,})[^\ ] ]] || continue
+        prefix="${BASH_REMATCH[1]}"
+        columns+="$(charCount "${prefix}") "
+    done <<< "${output}"
+    local unique
+    unique="$(tr ' ' '\n' <<< "${columns}" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')"
+    assertEquals "1" "${unique}" "hints: zweite Spalte buendig (Spalten: ${columns% })"
+}
+
 testMaintainerTargetsBrechenAb() {
     local target
     for target in status tag-patch; do
@@ -195,6 +216,7 @@ runAll() {
 
     testHilfeOhneBibliotheken
     testHintsNennenPipx
+    testHintsBuendig
     testMaintainerTargetsBrechenAb
     testRequireSetup
     testBashTestsOhneBashLib

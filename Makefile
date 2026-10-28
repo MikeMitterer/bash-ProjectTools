@@ -88,20 +88,29 @@ info: ## Umgebungsvariablen anzeigen
 	@echo "    $(YELLOW)PYTHON_BOOTSTRAP$(RESET) = $(BLUE)$(PYTHON_BOOTSTRAP)$(RESET)"
 	@echo
 
+# Eine Zeile für hints: Beschriftung, auf THEME_WIDTH_TARGET Zeichen aufgefüllt,
+# dann der Wert. printf füllt nach Bytes auf; die Breite zählt deshalb Zeichen
+# (UTF-8-Folgebytes zählen nicht, unabhängig von der Locale). Aufruf:
+# $(call hint_row,Beschriftung,Wert), ohne Komma in den Werten.
+hint_row = label="$(1)"; \
+	chars=$$(printf '%s' "$$label" | LC_ALL=C tr -d '\200-\277' | wc -c); \
+	printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%s$(RESET)%*s$(THEME_COLOR_DESC)%s$(RESET)\n" \
+		"$$label" $$(( $(THEME_WIDTH_TARGET) - chars + $(THEME_COLUMN_GAP) )) "" "$(2)"
+
 .PHONY: hints
 hints: ## Nützliche Links und Hinweise anzeigen
 	@for ((i=0; i<$(THEME_GROUP_SPACING); i++)); do echo; done
 	@echo "$(THEME_INDENT_GROUP)$(THEME_COLOR_GROUP)Erster Start$(RESET)"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "1. Setup" "" "make setup"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "2. Prüfen" "" "make test && make lint"
+	@$(call hint_row,1. Setup,make setup)
+	@$(call hint_row,2. Prüfen,make test && make lint)
 	@for ((i=0; i<$(THEME_GROUP_SPACING); i++)); do echo; done
 	@echo "$(THEME_INDENT_GROUP)$(THEME_COLOR_GROUP)Konsum in anderen Projekten$(RESET)"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "Installieren" "" "pipx install 'git+https://github.com/MikeMitterer/bash-ProjectTools.git@vX.Y.Z'"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "Umgebung" "" "PROJECT_TOOLS=$(WORKSPACE)/src"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "Projekt-Symlink" "" ".libs/ProjectTools (setup-libs.sh im Projekt)"
+	@$(call hint_row,Installieren,pipx install 'git+https://github.com/MikeMitterer/bash-ProjectTools.git@vX.Y.Z')
+	@$(call hint_row,Umgebung,PROJECT_TOOLS=$(WORKSPACE)/src)
+	@$(call hint_row,Projekt-Symlink,.libs/ProjectTools (setup-libs.sh im Projekt))
 	@for ((i=0; i<$(THEME_GROUP_SPACING); i++)); do echo; done
 	@echo "$(THEME_INDENT_GROUP)$(THEME_COLOR_GROUP)Links$(RESET)"
-	@printf "$(THEME_INDENT_TARGET)$(THEME_COLOR_TARGET)%-$(THEME_WIDTH_TARGET)s$(RESET)%$(THEME_COLUMN_GAP)s$(THEME_COLOR_DESC)%s$(RESET)\n" "GitHub" "" "https://github.com/MikeMitterer/bash-ProjectTools"
+	@$(call hint_row,GitHub,https://github.com/MikeMitterer/bash-ProjectTools)
 	@echo
 
 # ─── Precheck ────────────────────────────────────────────────────────────────
