@@ -1841,9 +1841,10 @@ export function checkScreenshots(
     );
     if (!found.length) missing.push(entry);
     for (const path of found) {
-      const exclude = excludes.find((candidate) => matchesPath(path, candidate));
-      if (exclude !== undefined) {
-        hit.add(exclude);
+      // Jede passende Ausnahme gilt als getroffen, auch wenn sich Einträge überlappen.
+      const matching = excludes.filter((candidate) => matchesPath(path, candidate));
+      if (matching.length) {
+        matching.forEach((exclude) => hit.add(exclude));
         unaged.push({ path, entry });
         continue;
       }

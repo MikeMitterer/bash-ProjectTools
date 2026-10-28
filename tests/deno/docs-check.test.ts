@@ -295,6 +295,19 @@ const shotsExcludedMissing = run(
   "--screenshot-exclude",
   "shots/logo.png",
 );
+// Überlappende Ausnahmen: Ordner und ein Bild darin treffen beide.
+const shotsExcludedOverlap = run(
+  "--root",
+  root,
+  "--screenshot",
+  "app|shots",
+  "--screenshot-exclude",
+  "shots",
+  "--screenshot-exclude",
+  "shots/old.png",
+  "--screenshot-exclude",
+  "shots/*.png",
+);
 const shotsOldFormat = run("--root", root, "--screenshot", "shots");
 const shotsAgeLimit = run(
   "--root",
@@ -653,6 +666,9 @@ Deno.test("Screenshots: Ausnahmen müssen da sein, ihr Alter zählt nicht", () =
     lineFor(shotsExcludedMissing.output, "shots/old.png").includes("Code geändert"),
     shotsExcludedMissing.output,
   );
+  // Treffen mehrere Ausnahmen dasselbe Bild, gilt jede als getroffen.
+  assert(shotsExcludedOverlap.code === 0, shotsExcludedOverlap.output);
+  assert(!shotsExcludedOverlap.output.includes("fehlt"), shotsExcludedOverlap.output);
 });
 
 Deno.test("Variablen aus dem Code müssen dokumentiert oder intern sein", () => {
