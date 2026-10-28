@@ -23,7 +23,7 @@ Checkout, Befehle, Tests und Aufbau. Die Projektregeln stehen in
 | Python 3.14 | Entwicklungs-venv für die Python-Tests und Ruff (`PYTHON_BOOTSTRAP` wählt einen anderen Interpreter) |
 | Pandoc | `dockerhub-readme` |
 | `shellcheck` | `make lint` |
-| BashLib, MakeLib | Werden von `make setup` unter `.libs/` verlinkt; ohne BashLib laufen nur `status` und einige Skripte nicht |
+| BashLib, MakeLib | Werden von `make setup` unter `.libs/` verlinkt. Ohne BashLib laufen `status`, `version`, `tag-*`, einige Skripte und die Bash-Tests nicht; `make test-bash` nennt dann den Weg (Klon neben ProjectTools oder `BASH_LIBS`) |
 
 Die Werkzeuge selbst laufen schon ab Python 3.9. Mit einer venv aus Python
 3.9 scheitern aber einige Bootstrap-Tests von `dockerhub-readme`; deshalb die
