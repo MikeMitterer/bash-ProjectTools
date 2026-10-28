@@ -127,10 +127,25 @@ testHilfeOhneBibliotheken() {
     assertOutputContains "[Maintainer]" "help: Maintainer-Targets markiert"
 }
 
-testHintsNennenPipx() {
+# Die Repo-Adresse kommt aus git remote origin, nie aus dem Makefile: ohne
+# Remote ein Hinweis, mit Remote dessen Owner (auch nach einem Umzug).
+testHintsLesenRepoAusRemote() {
     runMake hints
-    assertEquals "0" "${rc}" "hints: Exit 0"
-    assertOutputContains "pipx install" "hints: Installation per pipx"
+    assertEquals "0" "${rc}" "hints: Exit 0 ohne Remote"
+    assertOutputContains "kein Remote origin" "hints: ohne Remote ein Hinweis"
+    if [[ "${output}" == *"MikeMitterer"* ]]; then
+        report 1 "hints: keine fest eingetragene Adresse ${YELLOW}(MikeMitterer gefunden)${NC}"
+    else
+        report 0 "hints: keine fest eingetragene Adresse"
+    fi
+
+    git -C "${fixture}/project" init -q
+    git -C "${fixture}/project" remote add origin git@github.com:MangoLila/bash-ProjectTools.git
+    runMake hints
+    assertOutputContains "https://github.com/MangoLila/bash-ProjectTools" "hints: GitHub-Link aus dem Remote"
+    assertOutputContains "pipx install 'git+https://github.com/MangoLila/bash-ProjectTools.git@" \
+        "hints: Installation per pipx mit URL aus dem Remote"
+    command rm -rf -- "${fixture}/project/.git"
 }
 
 # Zeichen einer Zeichenkette, unabhaengig von der Locale (UTF-8-Folgebytes
@@ -189,6 +204,12 @@ testBashTestsOhneBashLib() {
     assertFailed "test-bash: ohne BashLib Abbruch"
     assertOutputContains "BashLib fehlt" "test-bash: nennt BashLib"
     assertOutputContains "bash-lib.git" "test-bash: nennt den Weg"
+    # Die Adresse kommt aus pyproject.toml, nicht fest aus dem Skript.
+    sed -i.bak 's|github.com/MikeMitterer/bash-lib.git|github.com/MangoLila/bash-lib.git|' \
+        "${fixture}/project/pyproject.toml"
+    runMake test-bash
+    assertOutputContains "github.com/MangoLila/bash-lib.git" "test-bash: Adresse aus pyproject.toml"
+    command mv -f "${fixture}/project/pyproject.toml.bak" "${fixture}/project/pyproject.toml"
     if [[ "${output}" == *"fehlgeschlagen"* ]]; then
         report 1 "test-bash: keine Suite gestartet ${YELLOW}(Suiten liefen)${NC}"
     else
@@ -215,8 +236,8 @@ runAll() {
     echo
 
     testHilfeOhneBibliotheken
-    testHintsNennenPipx
     testHintsBuendig
+    testHintsLesenRepoAusRemote
     testMaintainerTargetsBrechenAb
     testRequireSetup
     testBashTestsOhneBashLib

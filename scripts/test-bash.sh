@@ -33,8 +33,12 @@ usage() {
 requireBashLib() {
     local -r _LIBS="${BASH_LIBS:-${PROJECT_ROOT}/../BashLib/src}"
     [[ -r "${_LIBS}/tools.lib.sh" ]] && return 0
+    # Repo-Adresse aus der Abhängigkeit in pyproject.toml, der einzigen Quelle.
+    local _URL
+    _URL="$(sed -n 's|.*mmit-bashlib @ git+\([^@"]*\)@.*|\1|p' "${PROJECT_ROOT}/pyproject.toml" 2>/dev/null)"
     printf '✗ BashLib fehlt (%s): Die Bash-Tests brauchen sie.\n' "${_LIBS}" >&2
-    printf '  Neben ProjectTools klonen: git clone https://github.com/MikeMitterer/bash-lib.git ../BashLib\n' >&2
+    printf '  Neben ProjectTools klonen: git clone %s ../BashLib\n' \
+        "${_URL:-<BashLib-Repo aus pyproject.toml>}" >&2
     printf '  danach make setup, oder BASH_LIBS auf deren src setzen.\n' >&2
     return 1
 }
