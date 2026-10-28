@@ -60,7 +60,8 @@ gibt es weder Version noch Lizenzdatei.
 ## 2. Überblick
 
 Zwei bis vier Sätze: welche Aufgaben die Werkzeuge abdecken und dass Projekte
-sie direkt aus diesem Repo aufrufen, ohne Deploy und ohne Kopie.
+sie mit pipx als versioniertes Paket installieren; daneben der direkte Aufruf
+über `PROJECT_TOOLS`.
 
 Darunter die Tabelle der Repos im DevBash-Ökosystem (BashLib, BashTools,
 ProjectTools) mit Zweck und Art des Konsums; ProjectTools fett. Quelle:
@@ -91,8 +92,12 @@ ist der Fallback auf `BASH_LIBS` im Kopf jedes Skripts.
 Statt eines Screenshots das kleinste Beispiel:
 
 - Voraussetzungen in einem Satz, mit Verweis auf die Werkzeug-Dokumente.
-- Wie ein Projekt ProjectTools findet: `PROJECT_TOOLS`, der Symlink
-  `.libs/ProjectTools` und die Zeile für das Makefile als Codeblock.
+- Installation mit `pipx install` und Release-Tag, die installierten Befehle,
+  Aktualisieren und `pipx install -e` für die Arbeitskopie. Quelle:
+  `[project.scripts]` und `version` in `pyproject.toml`.
+- Wie ein Projekt ohne Installation ProjectTools findet: `PROJECT_TOOLS`, der
+  Symlink `.libs/ProjectTools` und die Zeile für das Makefile als Codeblock;
+  dazu, dass die Projektkopie von `setup-libs.sh` abgelöst ist.
 - Ein Werkzeug von der Starter-Config bis zum ersten Aufruf, bevorzugt
   `repo-status.sh`, weil es jedes Git-Repo kann.
 

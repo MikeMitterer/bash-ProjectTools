@@ -15,6 +15,11 @@ installieren:
 .venv/bin/python -m pip install -e ./.libs/ProjectTools
 ```
 
+Das zieht BashLib und Deno als Abhängigkeiten mit; wer nur die
+Python-Module braucht, ergänzt `--no-deps`. Die Befehle `docs-check`,
+`repo-status` und `changelog` installiert man dagegen mit pipx (siehe
+[README](../README.md#schnellstart)).
+
 Danach ist `from projecttools.ui.colors import HelpFormatter, Theme` ohne
 maschinenabhängigen Pfad oder `sys.path`-Änderung möglich. Die Installation
 gehört zur Umgebung des konsumierenden Projekts; der ProjectTools-Runner

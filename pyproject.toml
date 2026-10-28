@@ -1,14 +1,49 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mmit-projecttools"
-version = "0.1.0"
-description = "Shared Python helpers for ProjectTools command-line tools"
+version = "0.2.0"
+description = "ProjectTools: docs-check, repo-status und changelog für eigene Projekte"
 requires-python = ">=3.9"
+# Welche Bibliotheken mitkommen, steht nur hier.
+dependencies = [
+    # BashLib für die Bash-Skripte; ein von außen gesetztes BASH_LIBS hat Vorrang
+    "mmit-bashlib @ git+https://github.com/MikeMitterer/bash-lib.git@v0.1.0",
+    # deno für docs-check (src/deno/docs-check.ts)
+    "deno>=2",
+]
 
-[tool.setuptools.packages.find]
-where = ["src/python"]
-include = ["projecttools", "projecttools.*"]
-namespaces = false
+[project.urls]
+Homepage = "https://github.com/MikeMitterer/bash-ProjectTools"
+
+[project.scripts]
+projecttools = "projecttools.cli:main"
+docs-check = "projecttools.cli:docs_check"
+repo-status = "projecttools.cli:repo_status"
+changelog = "projecttools.cli:changelog"
+
+# Die Skripte aus src/ kommen im Paket unter projecttools/tools/; eine
+# editierbare Installation liest sie direkt aus src/ (projecttools.cli).
+[tool.setuptools]
+packages = [
+    "projecttools",
+    "projecttools.git_access",
+    "projecttools.ui",
+    "projecttools.tools.bash",
+    "projecttools.tools.deno",
+    "projecttools.tools.python",
+]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+"" = "src/python"
+"projecttools.tools.bash" = "src/bash"
+"projecttools.tools.deno" = "src/deno"
+"projecttools.tools.python" = "src/python"
+
+[tool.setuptools.package-data]
+"projecttools.tools.bash" = ["docs-check.sh", "repo-status.sh"]
+"projecttools.tools.deno" = ["docs-check.ts"]
+"projecttools.tools.python" = ["locales/*/LC_MESSAGES/changelog.mo"]
