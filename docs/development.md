@@ -153,9 +153,9 @@ Version gibt; direkt aufgerufen laufen die Werkzeuge weiter ab 3.9.
 `test_package.py` prüft, dass sich alle Abhängigkeiten vom Paketindex für die
 Mindestversion aus `requires-python` auflösen lassen.
 
-Ein Release ist ein Tag `vX.Y.Z` auf `master`, passend zu `version`. Für eine
-neue BashLib-Version zuerst deren Tag setzen, dann den Tag in `dependencies`
-anheben.
+Ein Release ist ein Tag `vX.Y.Z+JJMMTT.HHMM.hash` auf `master`, dessen
+Versionsanteil zu `version` passt. Für eine neue BashLib-Version zuerst deren
+Tag setzen, dann den Tag in `dependencies` anheben.
 
 [↑ Übersicht](#übersicht)
 

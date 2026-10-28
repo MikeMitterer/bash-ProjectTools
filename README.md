@@ -57,10 +57,18 @@ die übrigen Bash-Skripte brauchen sie.
 Voraussetzungen: Bash, Git, Python ab 3.10 und
 [pipx](https://pipx.pypa.io/); dazu je Werkzeug, was sein Dokument nennt.
 
-**Installieren** mit festem Release-Tag:
+**Installieren** mit festem Release-Tag. Tags folgen dem Schema
+`vX.Y.Z+JJMMTT.HHMM.hash`, und pipx braucht den vollen Tag. Den jüngsten
+nennt `make hints` in einer Arbeitskopie, ohne Arbeitskopie dieser Befehl:
 
 ```bash
-pipx install 'git+https://github.com/MikeMitterer/bash-ProjectTools.git@v0.2.0'
+git ls-remote --tags --refs --sort=-v:refname https://github.com/MikeMitterer/bash-ProjectTools.git | head -1
+```
+
+Damit installieren, `<release-tag>` durch den Tag ersetzen:
+
+```bash
+pipx install 'git+https://github.com/MikeMitterer/bash-ProjectTools.git@<release-tag>'
 projecttools --version
 ```
 
@@ -69,9 +77,8 @@ PATH. Das Paket bringt BashLib und Deno als Abhängigkeiten mit; `.libs/` und
 `PROJECT_TOOLS` braucht es dafür nicht. Ein gesetztes `BASH_LIBS` hat Vorrang
 vor der mitgelieferten BashLib.
 
-**Aktualisieren:** Für einen neuen Release-Tag `pipx install --force` mit dem
-neuen Tag aufrufen; `pipx upgrade mmit-projecttools` holt den Stand der
-installierten Quelle neu. Wer an ProjectTools arbeitet, installiert die
+**Aktualisieren:** `pipx install --force` mit dem neuen vollen Tag aufrufen.
+`pipx upgrade` bleibt beim installierten Tag und bringt keine neue Version. Wer an ProjectTools arbeitet, installiert die
 Arbeitskopie mit `pipx install -e <arbeitskopie>`; Änderungen an den Skripten
 wirken dann ohne Neuinstallation.
 
