@@ -154,6 +154,11 @@ status: precheck ## Git-Status des Repos und offene Blocker-Issues — Maintaine
 
 ##@ Tests
 
+# Voller Prüflauf, auch für agent-lessons (integration_check: make check).
+# require-setup zuerst, damit ohne Einrichtung nichts anläuft.
+.PHONY: check
+check: require-setup test lint ## Voller Prüflauf — Doku, alle Tests und Lint
+
 .PHONY: test
 test: docs-check require-setup test-bash test-deno test-python ## Alle Tests — Doku, Bash, Deno, Python
 
