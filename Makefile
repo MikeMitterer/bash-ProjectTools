@@ -12,7 +12,9 @@ PROJECT_TOOLS := $(WORKSPACE)/src
 
 # BashLib: Umgebung, dann .libs/ (make setup), dann der Nachbar im DevBash-Baum
 # — derselbe Fallback wie in den Skripten (siehe AGENTS.md).
-BASH_LIBS ?= $(or $(wildcard $(WORKSPACE)/.libs/BashLib/src),$(wildcard $(WORKSPACE)/../BashLib/src),$(WORKSPACE)/.libs/BashLib/src)
+# Zuletzt BashLib aus der Entwicklungs-venv (make setup installiert sie über
+# pyproject.toml); bashlib-path nennt ihr Verzeichnis.
+BASH_LIBS ?= $(or $(wildcard $(WORKSPACE)/.libs/BashLib/src),$(wildcard $(WORKSPACE)/../BashLib/src),$(shell test -x $(WORKSPACE)/.venv/bin/bashlib-path && $(WORKSPACE)/.venv/bin/bashlib-path),$(WORKSPACE)/.libs/BashLib/src)
 DEV_MAKE  ?= $(WORKSPACE)/.libs/MakeLib
 export BASH_LIBS PROJECT_TOOLS
 
@@ -54,7 +56,11 @@ VENV := .venv
 # Abhängigkeitsdateien der Entwicklungs-venv; requirements-dev.txt bindet die
 # des Docker-Hub-Werkzeugs ein. Ist eine neuer als die Stempeldatei, gilt die
 # Einrichtung als veraltet.
-VENV_REQUIREMENTS := requirements-dev.txt src/python/dockerhub-readme.requirements.txt
+VENV_REQUIREMENTS := requirements-dev.txt src/python/dockerhub-readme.requirements.txt pyproject.toml
+# deno aus der venv (Abhängigkeit in pyproject.toml) vorn im PATH. Ein eigener
+# Ordner mit nur dem deno-Link, damit Python und pytest der venv nichts verdecken.
+VENV_TOOLS := $(WORKSPACE)/$(VENV)/tools
+export PATH := $(VENV_TOOLS):$(PATH)
 
 # ─── Hilfe ───────────────────────────────────────────────────────────────────
 
@@ -138,8 +144,10 @@ precheck:
 # wenn eine Abhängigkeitsdatei neuer ist als die Stempeldatei.
 .PHONY: setup
 setup: $(VENV)/.installed ## .libs-Symlinks, Git-Hooks und Python-.venv einrichten
-	@if [[ -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
+	@if [[ "$(BASH_LIBS)" == */src && -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
 		./scripts/setup-libs.sh --install; \
+	elif [[ -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
+		echo -e "  $(GREEN)✓$(RESET) BashLib aus der venv ($(BASH_LIBS)) — .libs-Links nur mit einem BashLib-Klon"; \
 	else \
 		echo -e "  $(YELLOW)⚠$(RESET) BashLib nicht verfügbar — .libs-Verlinkung übersprungen (nur Maintainer-Targets brauchen sie)"; \
 	fi
@@ -150,7 +158,10 @@ setup: $(VENV)/.installed ## .libs-Symlinks, Git-Hooks und Python-.venv einricht
 $(VENV)/.installed: $(VENV_REQUIREMENTS)
 	@command -v $(PYTHON_BOOTSTRAP) >/dev/null || { echo -e "  $(RED)✗$(RESET) $(PYTHON_BOOTSTRAP) fehlt (PYTHON_BOOTSTRAP=… überschreibt)" >&2; exit 1; }
 	@test -x $(VENV)/bin/python || $(PYTHON_BOOTSTRAP) -m venv $(VENV)
-	@$(VENV)/bin/python -m pip install -q --disable-pip-version-check -r requirements-dev.txt
+	@$(VENV)/bin/python -m pip install -q --disable-pip-version-check -r requirements-dev.txt || { \
+		echo -e "  $(RED)✗$(RESET) Pakete nicht installiert: Netz und Paketindex prüfen; BashLib kommt über den Tag in pyproject.toml von GitHub" >&2; \
+		exit 1; }
+	@mkdir -p $(VENV_TOOLS) && if [[ -x $(VENV)/bin/deno ]]; then ln -sfn ../bin/deno $(VENV_TOOLS)/deno; fi
 	@touch "$@"
 
 # Prüf-Targets richten nichts ein; setup ist der einzige Weg (worktree_setup).
