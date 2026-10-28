@@ -144,8 +144,10 @@ precheck:
 # wenn eine Abhängigkeitsdatei neuer ist als die Stempeldatei.
 .PHONY: setup
 setup: $(VENV)/.installed ## .libs-Symlinks, Git-Hooks und Python-.venv einrichten
-	@if [[ -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
+	@if [[ "$(BASH_LIBS)" == */src && -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
 		./scripts/setup-libs.sh --install; \
+	elif [[ -r "$(BASH_LIBS)/tools.lib.sh" ]]; then \
+		echo -e "  $(GREEN)✓$(RESET) BashLib aus der venv ($(BASH_LIBS)) — .libs-Links nur mit einem BashLib-Klon"; \
 	else \
 		echo -e "  $(YELLOW)⚠$(RESET) BashLib nicht verfügbar — .libs-Verlinkung übersprungen (nur Maintainer-Targets brauchen sie)"; \
 	fi

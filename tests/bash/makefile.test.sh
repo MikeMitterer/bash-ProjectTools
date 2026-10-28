@@ -281,6 +281,22 @@ testBashLibsAusVenv() {
     command rm -rf -- "${fixture}/project/.venv" "${fixture}/project/.libs" "${lib}"
 }
 
+# Kommt BashLib nur aus der venv (kein Repo-Klon), legt setup keine
+# .libs-Links an und scheitert nicht an fehlender MakeLib.
+testSetupMitBashLibAusVenv() {
+    local project="${fixture}/project" lib="${fixture}/venvlib"
+    git -C "${project}" init -q
+    mkdir -p "${lib}" "${project}/.venv/bin"
+    : > "${lib}/tools.lib.sh"
+    printf '#!/bin/sh\necho "%s"\n' "${lib}" > "${project}/.venv/bin/bashlib-path"
+    chmod +x "${project}/.venv/bin/bashlib-path"
+    touch "${project}/.venv/.installed"
+    runMake setup
+    assertEquals "0" "${rc}" "setup: Exit 0 mit BashLib aus der venv"
+    assertOutputContains "BashLib aus der venv" "setup: nennt die Quelle, keine .libs-Links"
+    command rm -rf -- "${project}/.venv" "${project}/.git" "${lib}"
+}
+
 # deno aus der venv (.venv/tools), auch wenn der PATH keins kennt.
 testDenoAusVenv() {
     mkdir -p "${fixture}/project/.venv/tools"
@@ -330,6 +346,7 @@ runAll() {
     testBashTestsOhneBashLib
     testEinrichtungHaengtAnPyproject
     testBashLibsAusVenv
+    testSetupMitBashLibAusVenv
     testDenoAusVenv
     testSetupOhneIndexKlar
     testCleanEntferntBuildReste
