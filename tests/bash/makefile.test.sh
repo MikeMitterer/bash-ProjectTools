@@ -131,10 +131,46 @@ testHilfeOhneBibliotheken() {
     assertOutputContains "[Maintainer]" "help: Maintainer-Targets markiert"
 }
 
-testHintsNennenPipx() {
+# Die Repo-Adresse kommt aus git remote origin, nie aus dem Makefile: ohne
+# Remote ein Hinweis, mit Remote dessen Owner (auch nach einem Umzug).
+testHintsLesenRepoAusRemote() {
     runMake hints
-    assertEquals "0" "${rc}" "hints: Exit 0"
-    assertOutputContains "pipx install" "hints: Installation per pipx"
+    assertEquals "0" "${rc}" "hints: Exit 0 ohne Remote"
+    assertOutputContains "kein Remote origin" "hints: ohne Remote ein Hinweis"
+    if [[ "${output}" == *"MikeMitterer"* ]]; then
+        report 1 "hints: keine fest eingetragene Adresse ${YELLOW}(MikeMitterer gefunden)${NC}"
+    else
+        report 0 "hints: keine fest eingetragene Adresse"
+    fi
+
+    git -C "${fixture}/project" init -q
+    git -C "${fixture}/project" remote add origin git@github.com:MangoLila/bash-ProjectTools.git
+    runMake hints
+    assertOutputContains "https://github.com/MangoLila/bash-ProjectTools" "hints: GitHub-Link aus dem Remote"
+    assertOutputContains "pipx install 'git+https://github.com/MangoLila/bash-ProjectTools.git@" \
+        "hints: Installation per pipx mit URL aus dem Remote"
+    command rm -rf -- "${fixture}/project/.git"
+}
+
+# Zeichen einer Zeichenkette, unabhaengig von der Locale (UTF-8-Folgebytes
+# zaehlen nicht mit).
+charCount() {
+    printf '%s' "$1" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '
+}
+
+# Jede zweispaltige hints-Zeile beginnt die zweite Spalte an derselben
+# Bildschirmspalte, auch mit Umlauten in der Beschriftung.
+testHintsBuendig() {
+    runMake hints
+    local line prefix columns=""
+    while IFS= read -r line; do
+        [[ "${line}" =~ ^(\ +[^\ ]+(\ [^\ ]+)*\ {2,})[^\ ] ]] || continue
+        prefix="${BASH_REMATCH[1]}"
+        columns+="$(charCount "${prefix}") "
+    done <<< "${output}"
+    local unique
+    unique="$(tr ' ' '\n' <<< "${columns}" | sed '/^$/d' | sort -u | wc -l | tr -d ' ')"
+    assertEquals "1" "${unique}" "hints: zweite Spalte buendig (Spalten: ${columns% })"
 }
 
 testMaintainerTargetsBrechenAb() {
@@ -176,11 +212,39 @@ testBashTestsOhneBashLib() {
     assertFailed "test-bash: ohne BashLib Abbruch"
     assertOutputContains "BashLib fehlt" "test-bash: nennt BashLib"
     assertOutputContains "bash-lib.git" "test-bash: nennt den Weg"
+    # Die Adresse kommt aus pyproject.toml, nicht fest aus dem Skript.
+    sed -i.bak 's|github.com/MikeMitterer/bash-lib.git|github.com/MangoLila/bash-lib.git|' \
+        "${fixture}/project/pyproject.toml"
+    runMake test-bash
+    assertOutputContains "github.com/MangoLila/bash-lib.git" "test-bash: Adresse aus pyproject.toml"
+    command mv -f "${fixture}/project/pyproject.toml.bak" "${fixture}/project/pyproject.toml"
     if [[ "${output}" == *"fehlgeschlagen"* ]]; then
         report 1 "test-bash: keine Suite gestartet ${YELLOW}(Suiten liefen)${NC}"
     else
         report 0 "test-bash: keine Suite gestartet"
     fi
+}
+
+# Tag-Namen und Remote-URLs kommen von aussen und duerfen $, ( und )
+# enthalten. hints darf sie nie als Befehl ausfuehren; Werte mit anderen als
+# den erlaubten Zeichen gelten als nicht vorhanden.
+testHintsFuehrenKeineBefehleAusGit() {
+    local project="${fixture}/project"
+    git -C "${project}" init -q
+    git -C "${project}" -c user.name=T -c user.email=t@example.invalid \
+        commit -q --allow-empty -m test
+    # shellcheck disable=SC2016  # Die Expansion soll gerade nicht hier passieren
+    git -C "${project}" tag 'v1$(touch${IFS}PWNED_TAG)'
+    # shellcheck disable=SC2016
+    git -C "${project}" remote add origin 'git@github.com:A/b$(touch${IFS}PWNED_REMOTE).git'
+    runMake hints
+    assertEquals "0" "${rc}" "hints: Exit 0 mit boesartigem Tag und Remote"
+    assertEquals "no" "$([[ -e "${project}/PWNED_TAG" ]] && echo yes || echo no)" \
+        "hints: Tag-Name wird nicht ausgefuehrt"
+    assertEquals "no" "$([[ -e "${project}/PWNED_REMOTE" ]] && echo yes || echo no)" \
+        "hints: Remote-URL wird nicht ausgefuehrt"
+    assertOutputContains "kein Remote origin" "hints: ungueltiger Remote gilt als fehlend"
+    command rm -rf -- "${project}/.git" "${project}/PWNED_TAG" "${project}/PWNED_REMOTE"
 }
 
 testCleanEntferntBuildReste() {
@@ -202,7 +266,9 @@ runAll() {
     echo
 
     testHilfeOhneBibliotheken
-    testHintsNennenPipx
+    testHintsBuendig
+    testHintsLesenRepoAusRemote
+    testHintsFuehrenKeineBefehleAusGit
     testMaintainerTargetsBrechenAb
     testRequireSetup
     testBashTestsOhneBashLib
