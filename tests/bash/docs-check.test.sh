@@ -321,6 +321,31 @@ EOF
     assertOutputLacks "Abhängige Dokumente" "--run mit Pfad: keine Abhaengigkeiten"
 }
 
+# SCREENSHOTS_EXCLUDE kommt aus der Config an: Das ausgenommene Bild ist
+# aelter als sein UI-Code und bleibt trotzdem ohne Hinweis; fehlt es, scheitert
+# die Pruefung.
+testScreenshotAusnahmenAusConfig() {
+    mkdir -p "${fixture}/brand" "${fixture}/brand-ui"
+    printf 'png' > "${fixture}/brand/logo.png"
+    commitAt "2020-01-01T00:00:00" brand/logo.png
+    printf '<template>Logo</template>\n' > "${fixture}/brand-ui/logo.vue"
+    commitAt "2020-02-01T00:00:00" brand-ui/logo.vue
+    cat > "${fixture}/shots.conf.sh" <<'EOF'
+# shellcheck disable=SC2034
+DOCS=("README.md")
+SCREENSHOTS=("brand-ui|brand|Logo")
+SCREENSHOTS_EXCLUDE=("brand/logo.png")
+EOF
+    runScript --config shots.conf.sh --run
+    assertEquals "0" "${rc}" "SCREENSHOTS_EXCLUDE: altes Bild ohne Problem"
+    assertOutputContains "vorhanden (ohne Altersprüfung)" "SCREENSHOTS_EXCLUDE: ausgenommen ausgewiesen"
+    assertOutputLacks "Code geändert" "SCREENSHOTS_EXCLUDE: keine Altersmeldung"
+    printf 'SCREENSHOTS_EXCLUDE+=("brand/gone.png")\n' >> "${fixture}/shots.conf.sh"
+    runScript --config shots.conf.sh --run
+    assertEquals "1" "${rc}" "SCREENSHOTS_EXCLUDE: fehlendes Bild ist ein Problem"
+    assertOutputContains "brand/gone.png" "SCREENSHOTS_EXCLUDE: fehlendes Bild genannt"
+}
+
 # Das Alter gegen das Tagesdatum gibt es nicht mehr: Ein gesetzter Wert bricht ab.
 testMaxScreenshotAgeEntfaellt() {
     printf '# shellcheck disable=SC2034\nDOCS=("README.md")\nMAX_SCREENSHOT_AGE_DAYS=60\n' > "${fixture}/age.conf.sh"
@@ -400,6 +425,7 @@ runAll() {
     testMusterInDocsUndExclude
     testNeueConfigEintraege
     testAbhaengigkeitenAusConfig
+    testScreenshotAusnahmenAusConfig
     testMaxScreenshotAgeEntfaellt
     testCodeVariablenAusConfig
     testBekannteMakeTargetsAusConfig

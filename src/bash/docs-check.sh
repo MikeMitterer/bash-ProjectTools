@@ -11,8 +11,8 @@
 # Welche Dokumente geprueft werden und welche Begriffe verboten sind, steht in
 # einer projektspezifischen Config im aktuellen Verzeichnis. Die Config ist ein
 # sourcebares Bash-Snippet (DOCS, LINKS_ONLY, EXCLUDE, FORBIDDEN, KNOWN_VARIABLES,
-# KNOWN_MAKE_TARGETS, MAX_ALERTS, REQUIRED, SCREENSHOTS, DEPENDS, DEPENDS_HINT, TRANSLATIONS,
-# CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
+# KNOWN_MAKE_TARGETS, MAX_ALERTS, REQUIRED, SCREENSHOTS, SCREENSHOTS_EXCLUDE, DEPENDS,
+# DEPENDS_HINT, TRANSLATIONS, CODE_VARIABLES, INTERNAL_VARIABLES); der Name wird aus dem
 # Script-Namen abgeleitet (docs-check.sh -> .docs-check.conf.sh, .conf wird
 # ebenfalls akzeptiert). Die Pruefung selbst macht src/deno/docs-check.ts:
 # nur lesend, nur git, kein Netz.
@@ -106,6 +106,7 @@ KNOWN_MAKE_TARGETS=()
 MAX_ALERTS=""
 REQUIRED=()
 SCREENSHOTS=()
+SCREENSHOTS_EXCLUDE=()
 MAX_SCREENSHOT_AGE_DAYS=""
 DEPENDS=()
 DEPENDS_HINT=()
@@ -161,7 +162,7 @@ printConfigExample() {
 # shellcheck disable=SC2034  # von docs-check.sh gesourct
 
 # Pfadangaben in DOCS, LINKS_ONLY, EXCLUDE, REQUIRED, CODE_VARIABLES,
-# SCREENSHOTS, DEPENDS und DEPENDS_HINT: relativ zum Projekt-Root, führendes
+# SCREENSHOTS, SCREENSHOTS_EXCLUDE, DEPENDS und DEPENDS_HINT: relativ zum Projekt-Root, führendes
 # "./" erlaubt. Muster wie in .gitignore:
 #   *    beliebige Zeichen innerhalb eines Ordners   docs/*.md
 #   **   beliebig viele Ordner                       docs/**/*.md, **/README.md
@@ -344,6 +345,14 @@ EOF
     cat <<EOF
 )
 
+# Optional: Bilder aus SCREENSHOTS, deren Alter keine Rolle spielt, etwa
+# Logos, Diagramme oder Aufnahmen fremder Oberflächen: Datei, Ordner oder
+# Muster wie in EXCLUDE. Sie müssen vorhanden sein, mit dem UI-Code verglichen
+# werden sie nicht. Eine Ausnahme ohne Bild ist ein Problem.
+SCREENSHOTS_EXCLUDE=(
+    # "docs/images/logo.png"
+)
+
 # Optional: Dateien, die einer anderen bald nach deren Änderung folgen müssen,
 # je "<basis>|<abhängig>|<tage>|<grund>" (z. B. Übersetzung oder erzeugte
 # Vorschau). Ändert sich die Basis nach der abhängigen Datei, ist das ein
@@ -390,13 +399,17 @@ loadConfig() {
     [[ ${#DOCS[@]} -gt 0 || ${#LINKS_ONLY[@]} -gt 0 || ${#REQUIRED[@]} -gt 0 ]] || return 2
 }
 
-# Sammelt SCREENSHOTS, DEPENDS und DEPENDS_HINT als Argumente fuer die
-# Deno-Pruefung in FOLLOWER_ARGS: die Dateien, die einer Basis folgen muessen.
+# Sammelt SCREENSHOTS, SCREENSHOTS_EXCLUDE, DEPENDS und DEPENDS_HINT als
+# Argumente fuer die Deno-Pruefung in FOLLOWER_ARGS: die Dateien, die einer
+# Basis folgen muessen, und die Bilder ohne Alterspruefung.
 collectFollowerArgs() {
     local entry
     FOLLOWER_ARGS=()
     for entry in "${SCREENSHOTS[@]+"${SCREENSHOTS[@]}"}"; do
         FOLLOWER_ARGS+=(--screenshot "${entry}")
+    done
+    for entry in "${SCREENSHOTS_EXCLUDE[@]+"${SCREENSHOTS_EXCLUDE[@]}"}"; do
+        FOLLOWER_ARGS+=(--screenshot-exclude "${entry}")
     done
     for entry in "${DEPENDS[@]+"${DEPENDS[@]}"}"; do
         FOLLOWER_ARGS+=(--depends "${entry}")

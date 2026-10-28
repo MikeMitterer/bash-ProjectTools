@@ -186,6 +186,11 @@ REQUIRED=(
 SCREENSHOTS=(
     "frontend/src/views,frontend/src/components|docs/images|Oberfläche"
 )
+# Optional: Bilder aus SCREENSHOTS ohne Altersprüfung, nur auf Vorhandensein geprüft.
+SCREENSHOTS_EXCLUDE=(
+    "docs/images/logo.png"
+    "docs/images/diagrams"
+)
 
 # Optional: abhängige Dateien, je "<basis>|<abhängig>|<tage>|<grund>".
 DEPENDS=(
@@ -203,7 +208,7 @@ TRANSLATIONS=(
 )
 ```
 
-**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `DEPENDS`, `CODE_VARIABLES`):** Pfade gelten ab dem
+**Pfade und Muster (`DOCS`, `LINKS_ONLY`, `EXCLUDE`, `REQUIRED`, `SCREENSHOTS`, `SCREENSHOTS_EXCLUDE`, `DEPENDS`, `CODE_VARIABLES`):** Pfade gelten ab dem
 Projekt-Root, ein führendes `./` ist erlaubt. Muster schreiben sich wie in
 `.gitignore`:
 
@@ -284,6 +289,15 @@ Dateidatum zählt nicht, weil Klon, Branchwechsel, Merge und Stash es neu
 setzen. Ein Eintrag ohne Bild ist ein Problem. Das frühere
 `MAX_SCREENSHOT_AGE_DAYS` entfällt; ist es gesetzt, bricht das Skript mit
 Exit-Code 2 ab.
+
+**Ausnahmen von der Altersprüfung (`SCREENSHOTS_EXCLUDE`):** Manche Bilder
+ändern sich nicht mit dem UI-Code, etwa Logos, Diagramme oder Aufnahmen
+fremder Oberflächen. Ein Eintrag nimmt solche Bilder aus `SCREENSHOTS` von der
+Altersprüfung aus: Datei, Ordner samt Inhalt oder Muster, geschrieben wie in
+`EXCLUDE`. Die Ausgabe führt sie als „vorhanden (ohne Altersprüfung)“, egal wie
+alt sie gegenüber dem UI-Code sind; quittieren muss man sie nie. Vorhanden
+sein müssen sie weiter: Trifft ein Eintrag kein Bild aus `SCREENSHOTS`, ist
+das ein Problem.
 
 **Pflichtdateien (`REQUIRED`):** Ein Eintrag ohne `/` gilt für den Dateinamen
 an beliebiger Stelle im Projekt (`README.md` trifft auch `api/README.md`); mit

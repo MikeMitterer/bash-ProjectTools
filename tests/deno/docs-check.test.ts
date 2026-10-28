@@ -278,6 +278,36 @@ const shots = run(
   "--screenshot",
   "app|gen/*.png",
 );
+// Ausnahmen von der Altersprüfung: vorhanden muss das Bild sein, sein Alter zählt nicht.
+const shotsExcluded = run(
+  "--root",
+  root,
+  "--screenshot",
+  "app|shots|Oberfläche",
+  "--screenshot-exclude",
+  "shots/o*.png",
+);
+const shotsExcludedMissing = run(
+  "--root",
+  root,
+  "--screenshot",
+  "app|shots",
+  "--screenshot-exclude",
+  "shots/logo.png",
+);
+// Überlappende Ausnahmen: Ordner und ein Bild darin treffen beide.
+const shotsExcludedOverlap = run(
+  "--root",
+  root,
+  "--screenshot",
+  "app|shots",
+  "--screenshot-exclude",
+  "shots",
+  "--screenshot-exclude",
+  "shots/old.png",
+  "--screenshot-exclude",
+  "shots/*.png",
+);
 const shotsOldFormat = run("--root", root, "--screenshot", "shots");
 const shotsAgeLimit = run(
   "--root",
@@ -606,6 +636,39 @@ Deno.test("Screenshots: mit dem UI-Code verglichen, nicht mit dem Tagesdatum", (
     shotsAgeLimit.code === 2 && shotsAgeLimit.output.includes("entfällt"),
     shotsAgeLimit.output,
   );
+});
+
+Deno.test("Screenshots: Ausnahmen müssen da sein, ihr Alter zählt nicht", () => {
+  assert(shotsExcluded.code === 0, shotsExcluded.output);
+  assert(
+    shotsExcluded.output.includes("Screenshots: 2, verglichen mit dem UI-Code"),
+    shotsExcluded.output,
+  );
+  const old = lineFor(shotsExcluded.output, "shots/old.png");
+  assert(old.includes("vorhanden (ohne Altersprüfung)"), `ausgenommen:\n${shotsExcluded.output}`);
+  assert(old.includes("Oberfläche"), "Grund genannt");
+  assert(!shotsExcluded.output.includes("Code geändert"), shotsExcluded.output);
+  assert(
+    lineFor(shotsExcluded.output, "shots/fresh.png").includes("aktuell (uncommittet)"),
+    shotsExcluded.output,
+  );
+  assert(
+    shotsExcluded.output.includes("2 Screenshots geprüft · keine Probleme"),
+    shotsExcluded.output,
+  );
+  // Fehlt ein ausgenommenes Bild, ist das ein Problem; die übrigen prüft die
+  // Altersprüfung wie bisher.
+  assert(shotsExcludedMissing.code === 1, shotsExcludedMissing.output);
+  const missing = lineFor(shotsExcludedMissing.output, "shots/logo.png");
+  assert(missing.includes("✗") && missing.includes("fehlt"), shotsExcludedMissing.output);
+  assert(shotsExcludedMissing.output.includes("SCREENSHOTS_EXCLUDE"), "nennt den Schlüssel");
+  assert(
+    lineFor(shotsExcludedMissing.output, "shots/old.png").includes("Code geändert"),
+    shotsExcludedMissing.output,
+  );
+  // Treffen mehrere Ausnahmen dasselbe Bild, gilt jede als getroffen.
+  assert(shotsExcludedOverlap.code === 0, shotsExcludedOverlap.output);
+  assert(!shotsExcludedOverlap.output.includes("fehlt"), shotsExcludedOverlap.output);
 });
 
 Deno.test("Variablen aus dem Code müssen dokumentiert oder intern sein", () => {
