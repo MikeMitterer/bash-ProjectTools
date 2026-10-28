@@ -34,6 +34,9 @@
  *                          Hinweis, wenn sich der UI-Code (Datei, Ordner,
  *                          Muster, mehrere mit Komma) nach einem Bild geändert
  *                          hat; nicht gegen das Tagesdatum
+ *   --screenshot-exclude BILDER
+ *                          Bild, Ordner oder Muster aus --screenshot nur auf
+ *                          Vorhandensein prüfen, nicht auf sein Alter
  *   --depends BASIS|ABHÄNGIG|TAGE[|GRUND]
  *                          ABHÄNGIG muss BASIS folgen: Ändert sich die Basis
  *                          später, ist das ein Hinweis, nach TAGE Tagen ein
@@ -1301,21 +1304,26 @@ export interface ChangeReport {
 /** Textstellen, die beim Vergleich nicht als UI-Text gelten. */
 const UI_TEXT_MIN = 4;
 
+/**
+ * Trifft ein Eintrag wie in DOCS oder EXCLUDE den Pfad? Datei, Ordner samt
+ * Inhalt oder Muster; ein Muster darf auch einen Ordner treffen.
+ */
+function matchesPath(path: string, entry: string): boolean {
+  const wanted = normalize(entry);
+  if (wanted === "" || wanted === ".") return true;
+  if (isGlob(wanted)) {
+    const matcher = globToRegExp(wanted);
+    const parts = path.split("/");
+    return parts.some((_, index) => matcher.test(parts.slice(0, index + 1).join("/")));
+  }
+  return path === wanted || path.startsWith(`${wanted}/`);
+}
+
 /** Datei- und Musterauswahl wie bei DOCS, angewandt auf eine Dateiliste. */
 function selectPaths(paths: string[], inputs: string[], excludes: string[]): string[] {
-  const matches = (path: string, entry: string) => {
-    const wanted = normalize(entry);
-    if (wanted === "" || wanted === ".") return true;
-    if (isGlob(wanted)) {
-      const matcher = globToRegExp(wanted);
-      const parts = path.split("/");
-      return parts.some((_, index) => matcher.test(parts.slice(0, index + 1).join("/")));
-    }
-    return path === wanted || path.startsWith(`${wanted}/`);
-  };
   return paths.filter((path) =>
-    inputs.some((entry) => matches(path, entry)) &&
-    !excludes.some((entry) => matches(path, entry))
+    inputs.some((entry) => matchesPath(path, entry)) &&
+    !excludes.some((entry) => matchesPath(path, entry))
   );
 }
 
@@ -1789,18 +1797,34 @@ export function parseScreenshot(entry: string): ScreenshotEntry | string {
   return { base: splitPaths(base).join(","), images: normalize(images), reason: reason.join("|") };
 }
 
+/** Bild aus SCREENSHOTS, das eine Ausnahme von der Altersprüfung ausnimmt. */
+export interface UnagedScreenshot {
+  path: string;
+  entry: ScreenshotEntry;
+}
+
 /**
  * Je Bild, das ein Eintrag trifft, eine Abhängigkeit vom UI-Code ohne Frist:
  * Hat sich der Code nach dem Bild geändert, ist das ein Hinweis, bis das Bild
  * neu aufgenommen oder quittiert ist. Gesucht wird unter den Dateien, die git
  * nicht ignoriert. Einträge ohne Bild stehen in `missing`.
+ *
+ * Bilder, die eine Ausnahme (`excludes`, wie EXCLUDE) trifft, müssen nur da
+ * sein; sie stehen in `unaged`. Eine Ausnahme, die kein Bild aus SCREENSHOTS
+ * trifft, steht in `missingExcludes`, außer der Eintrag selbst fehlt schon.
  */
 export function checkScreenshots(
   project: Project,
   entries: ScreenshotEntry[],
+  excludes: string[] = [],
   acks: Ack[] = [],
   now = Date.now(),
-): { results: DependencyResult[]; missing: ScreenshotEntry[] } {
+): {
+  results: DependencyResult[];
+  missing: ScreenshotEntry[];
+  unaged: UnagedScreenshot[];
+  missingExcludes: string[];
+} {
   const listed = git(project.root, "ls-files", "--cached", "--others", "--exclude-standard");
   const images = [...new Set(listed ? listed.split("\n") : project.files)]
     .filter((path) => IMAGE_SUFFIXES.has(suffix(path).toLowerCase()) && !isSensitive(path))
@@ -1808,6 +1832,8 @@ export function checkScreenshots(
     .sort();
   const dependencies: Dependency[] = [];
   const missing: ScreenshotEntry[] = [];
+  const unaged: UnagedScreenshot[] = [];
+  const hit = new Set<string>();
   for (const entry of entries) {
     const matcher = isGlob(entry.images) ? globToRegExp(entry.images) : undefined;
     const found = images.filter((path) =>
@@ -1815,6 +1841,12 @@ export function checkScreenshots(
     );
     if (!found.length) missing.push(entry);
     for (const path of found) {
+      const exclude = excludes.find((candidate) => matchesPath(path, candidate));
+      if (exclude !== undefined) {
+        hit.add(exclude);
+        unaged.push({ path, entry });
+        continue;
+      }
       dependencies.push({
         base: entry.base,
         dependent: path,
@@ -1823,7 +1855,15 @@ export function checkScreenshots(
       });
     }
   }
-  return { results: checkDependencies(project.root, dependencies, acks, now), missing };
+  const missingExcludes = excludes.filter((exclude) =>
+    !hit.has(exclude) && !missing.some((entry) => entry.images === normalize(exclude))
+  );
+  return {
+    results: checkDependencies(project.root, dependencies, acks, now),
+    missing,
+    unaged,
+    missingExcludes,
+  };
 }
 
 /**
@@ -2120,6 +2160,8 @@ interface Options {
   knownMakeTargets: string[];
   linksOnlyInputs: string[];
   screenshots: ScreenshotEntry[];
+  /** Bilder aus SCREENSHOTS ohne Altersprüfung, nur auf Vorhandensein geprüft. */
+  screenshotExcludes: string[];
   /** Quittieren statt prüfen; leer: alle offenen Rückstände. */
   ack?: string[];
   dependencies: Dependency[];
@@ -2145,6 +2187,7 @@ function parseArgs(args: string[]): Options | string {
     knownMakeTargets: [],
     linksOnlyInputs: [],
     screenshots: [],
+    screenshotExcludes: [],
     dependencies: [],
     translations: [],
     codeVariables: [],
@@ -2211,7 +2254,8 @@ function parseArgs(args: string[]): Options | string {
         const screenshot = parseScreenshot(value());
         if (typeof screenshot === "string") return screenshot;
         options.screenshots.push(screenshot);
-      } else if (arg === "--ack") (options.ack ??= []).push(value());
+      } else if (arg === "--screenshot-exclude") options.screenshotExcludes.push(value());
+      else if (arg === "--ack") (options.ack ??= []).push(value());
       else if (arg === "--ack-all") options.ack ??= [];
       else if (arg === "--depends" || arg === "--depends-hint") {
         const dependency = parseDependency(value(), arg === "--depends-hint");
@@ -2229,6 +2273,9 @@ function parseArgs(args: string[]): Options | string {
     } catch (error) {
       return (error as Error).message;
     }
+  }
+  if (options.screenshotExcludes.length && !options.screenshots.length) {
+    return "--screenshot-exclude braucht Screenshots (Config: SCREENSHOTS)";
   }
   if (options.ack && !options.screenshots.length && !options.dependencies.length) {
     return "--ack braucht Abhängigkeiten oder Screenshots (Config: DEPENDS, DEPENDS_HINT, SCREENSHOTS)";
@@ -2281,7 +2328,7 @@ function main(args: string[]): number {
   if (typeof options === "string") {
     console.error(`Fehler: ${options}`);
     console.error(
-      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot UI-CODE|BILDER[|GRUND]] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--translation ORIGINAL|ÜBERSETZUNG[|GRUND]] [--ack PFAD | --ack-all] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
+      "Aufruf: docs-check.ts [--root DIR] [--forbid BEGRIFF|/MUSTER/[|GRUND]] [--exclude PFAD] [--max-alerts N] [--require NAME|PFAD|MUSTER[|GRUND]] [--links-only PFAD] [--known-variable NAME[|GRUND]] [--screenshot UI-CODE|BILDER[|GRUND]] [--screenshot-exclude BILDER] [--depends BASIS|ABHÄNGIG|TAGE[|GRUND]] [--depends-hint BASIS|ABHÄNGIG|TAGE[|GRUND]] [--translation ORIGINAL|ÜBERSETZUNG[|GRUND]] [--ack PFAD | --ack-all] [--code-variables PFAD] [--internal-variable NAME|GRUND] [--changes BASE[..HEAD] [--ui-catalog PFAD] [--json]] [--as PFAD] [--verbose] DATEI|ORDNER...",
     );
     return 2;
   }
@@ -2316,7 +2363,8 @@ function main(args: string[]): number {
   const acks = loadAcks(project.root);
   if (options.ack) {
     const results = [
-      ...checkScreenshots(project, options.screenshots, acks).results,
+      ...checkScreenshots(project, options.screenshots, options.screenshotExcludes, acks)
+        .results,
       ...checkDependencies(project.root, options.dependencies, acks),
     ];
     return acknowledge(project.root, results, options.ack, acks, paint);
@@ -2415,8 +2463,8 @@ function main(args: string[]): number {
   // Screenshots und abhängige Dokumente: Basis später geändert ist ein Hinweis,
   // bei DEPENDS nach der Frist ein Problem; eine Quittung hebt beides auf.
   const screenshots = options.screenshots.length
-    ? checkScreenshots(project, options.screenshots, acks)
-    : { results: [], missing: [] };
+    ? checkScreenshots(project, options.screenshots, options.screenshotExcludes, acks)
+    : { results: [], missing: [], unaged: [], missingExcludes: [] };
   const dependencies = checkDependencies(project.root, options.dependencies, acks);
   const followers = [...screenshots.results, ...dependencies];
 
@@ -2483,12 +2531,13 @@ function main(args: string[]): number {
     }
   };
 
+  const shotCount = screenshots.results.length + screenshots.unaged.length;
   if (options.screenshots.length) {
     console.log(
       `\n${
         paint(
           "1",
-          `Screenshots: ${screenshots.results.length}${source}, verglichen mit dem UI-Code`,
+          `Screenshots: ${shotCount}${source}, verglichen mit dem UI-Code`,
         )
       }\n`,
     );
@@ -2496,6 +2545,8 @@ function main(args: string[]): number {
       0,
       ...screenshots.results.map((result) => result.dependency.dependent.length),
       ...screenshots.missing.map((entry) => entry.images.length),
+      ...screenshots.unaged.map(({ path }) => path.length),
+      ...screenshots.missingExcludes.map((exclude) => exclude.length),
     );
     for (const entry of screenshots.missing) {
       console.log(
@@ -2507,8 +2558,25 @@ function main(args: string[]): number {
         `${" ".repeat(shotWidth + 7)}→ Eintrag in SCREENSHOTS korrigieren oder entfernen.`,
       );
     }
+    for (const exclude of screenshots.missingExcludes) {
+      console.log(
+        `  ${paint("31", "✗")} ${exclude.padEnd(shotWidth)}   ${
+          paint("31", "fehlt oder ist nicht in git")
+        }`,
+      );
+      console.log(
+        `${" ".repeat(shotWidth + 7)}→ Bild anlegen und committen oder Eintrag in ` +
+          "SCREENSHOTS_EXCLUDE korrigieren.",
+      );
+    }
     for (const result of screenshots.results) {
       printFollower(result, result.dependency.dependent, shotWidth, true);
+    }
+    for (const { path, entry } of screenshots.unaged) {
+      const reason = entry.reason ? ` · ${entry.reason}` : "";
+      console.log(
+        `  ${paint("32", "✓")} ${path.padEnd(shotWidth)}   vorhanden (ohne Altersprüfung)${reason}`,
+      );
     }
   }
 
@@ -2661,9 +2729,7 @@ function main(args: string[]): number {
     ...(requiredResults.length
       ? [count(requiredResults.length, "Pflichtdatei", "Pflichtdateien")]
       : []),
-    ...(options.screenshots.length
-      ? [count(screenshots.results.length, "Screenshot", "Screenshots")]
-      : []),
+    ...(options.screenshots.length ? [count(shotCount, "Screenshot", "Screenshots")] : []),
     ...(dependencies.length ? [count(dependencies.length, "Abhängigkeit", "Abhängigkeiten")] : []),
     ...(translations.length
       ? [count(translations.length, "Sprachfassung", "Sprachfassungen")]
@@ -2673,7 +2739,8 @@ function main(args: string[]): number {
       : []),
   ];
   const problems = all.filter((finding) => finding.level === "problem").length + missing.length +
-    failedRequired + screenshots.missing.length + codeVariables.missing.length +
+    failedRequired + screenshots.missing.length + screenshots.missingExcludes.length +
+    codeVariables.missing.length +
     undocumented.length + followers.filter(dependencyProblem).length + translationProblems;
   const open =
     all.filter((finding) => finding.level === "check" || finding.level === "unchecked").length +
