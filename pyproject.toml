@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mmit-projecttools"
-version = "0.3.0"
+version = "0.3.1"
 description = "ProjectTools: docs-check, repo-status und changelog für eigene Projekte"
 # 3.10: das deno-Paket gibt es erst ab Python 3.10
 requires-python = ">=3.10"
