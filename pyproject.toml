@@ -6,7 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "mmit-projecttools"
 version = "0.2.0"
 description = "ProjectTools: docs-check, repo-status und changelog für eigene Projekte"
-requires-python = ">=3.9"
+# 3.10: das deno-Paket gibt es erst ab Python 3.10
+requires-python = ">=3.10"
 # Welche Bibliotheken mitkommen, steht nur hier.
 dependencies = [
     # BashLib für die Bash-Skripte; ein von außen gesetztes BASH_LIBS hat Vorrang

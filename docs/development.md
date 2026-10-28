@@ -127,6 +127,11 @@ ins Paket kommen, steht unter `[tool.setuptools.package-data]`. Im Paket
 liegen sie unter `projecttools/tools/`; `projecttools.cli` startet sie von dort
 oder bei `pipx install -e` direkt aus `src/`.
 
+Das Paket verlangt Python ab 3.10, weil es das `deno`-Paket erst ab dieser
+Version gibt; direkt aufgerufen laufen die Werkzeuge weiter ab 3.9.
+`test_package.py` prüft, dass sich alle Abhängigkeiten vom Paketindex für die
+Mindestversion aus `requires-python` auflösen lassen.
+
 Ein Release ist ein Tag `vX.Y.Z` auf `master`, passend zu `version`. Für eine
 neue BashLib-Version zuerst deren Tag setzen, dann den Tag in `dependencies`
 anheben.

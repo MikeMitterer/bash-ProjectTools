@@ -15,8 +15,9 @@ installieren:
 .venv/bin/python -m pip install -e ./.libs/ProjectTools
 ```
 
-Das zieht BashLib und Deno als Abhängigkeiten mit; wer nur die
-Python-Module braucht, ergänzt `--no-deps`. Die Befehle `docs-check`,
+Das zieht BashLib und Deno als Abhängigkeiten mit und braucht deshalb
+Python ab 3.10; wer nur die Python-Module braucht, ergänzt `--no-deps`, dann
+reicht Python 3.9. Die Befehle `docs-check`,
 `repo-status` und `changelog` installiert man dagegen mit pipx (siehe
 [README](../README.md#schnellstart)).
 

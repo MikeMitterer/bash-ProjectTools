@@ -196,3 +196,30 @@ def test_changelog_matches_script(installed: Path, tmp_path: Path) -> None:
     assert command.returncode == script.returncode == 0, command.stderr + script.stderr
     assert command.stdout == script.stdout
     assert "Knopf" in command.stdout and "Board" not in command.stdout
+
+
+def test_dependencies_resolve_for_minimum_python(tmp_path: Path) -> None:
+    """Jede Abhängigkeit vom Paketindex gibt es für die kleinste unterstützte Python-Version."""
+    minimum = PYPROJECT["project"]["requires-python"].removeprefix(">=")
+    from_index = [d for d in PYPROJECT["project"]["dependencies"] if " @ " not in d]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--dry-run",
+            "--quiet",
+            "--disable-pip-version-check",
+            "--ignore-installed",
+            "--only-binary=:all:",
+            "--python-version",
+            minimum,
+            "--target",
+            str(tmp_path / "target"),
+            *from_index,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

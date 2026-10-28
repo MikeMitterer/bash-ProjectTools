@@ -54,7 +54,7 @@ die übrigen Bash-Skripte brauchen sie.
 
 ## Schnellstart
 
-Voraussetzungen: Bash, Git, Python ab 3.9 und
+Voraussetzungen: Bash, Git, Python ab 3.10 und
 [pipx](https://pipx.pypa.io/); dazu je Werkzeug, was sein Dokument nennt.
 
 **Installieren** mit festem Release-Tag:
