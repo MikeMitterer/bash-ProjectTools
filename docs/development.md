@@ -19,12 +19,13 @@ Checkout, Befehle, Tests und Aufbau. Die Projektregeln stehen in
 
 | Werkzeug | Wofür |
 |---|---|
-| Bash, Git, `jq`, `lsof` | Skripte und Bash-Tests |
-| Deno 2 | `docs-check` und dessen Tests |
+| Bash, Git, `jq`, `lsof`, Node.js | Skripte und Bash-Tests (`npm-publish` braucht `node`) |
+| Deno 2 | `docs-check` und dessen Tests; `make setup` bringt es in die `.venv` mit, ein systemweites Deno ist nicht nötig |
 | Python 3.14 | Entwicklungs-venv für die Python-Tests und Ruff (`PYTHON_BOOTSTRAP` wählt einen anderen Interpreter) |
 | Pandoc | `dockerhub-readme` |
 | `shellcheck` | `make lint` |
-| BashLib, MakeLib | Werden von `make setup` unter `.libs/` verlinkt. Ohne BashLib laufen `status`, `version`, `tag-*`, einige Skripte und die Bash-Tests nicht; `make test-bash` nennt dann den Weg (Klon neben ProjectTools oder `BASH_LIBS`) |
+| BashLib | `make setup` installiert sie in die `.venv` (Tag aus `pyproject.toml`). Ein Klon neben ProjectTools, `.libs/BashLib` oder ein gesetztes `BASH_LIBS` haben Vorrang |
+| MakeLib | Optional; mit einem BashLib-Klon verlinkt `make setup` beide unter `.libs/`. Ohne MakeLib erscheint die Ausgabe in Ersatzfarben |
 
 Die Werkzeuge selbst laufen schon ab Python 3.9. Mit einer venv aus Python
 3.9 scheitern aber einige Bootstrap-Tests von `dockerhub-readme`; deshalb die
@@ -38,15 +39,20 @@ neuere Vorgabe für die Entwicklung.
 make setup
 ```
 
-Das verlinkt BashLib und MakeLib unter `.libs/`, aktiviert den
-pre-commit-Hook aus `.githooks/` und legt `.venv` mit den Paketen aus
-`requirements-dev.txt` an. Der Hook prüft vor jedem Commit die vorgemerkte
+Das legt `.venv` mit den Paketen aus `requirements-dev.txt` an, aktiviert
+den pre-commit-Hook aus `.githooks/` und verlinkt BashLib und MakeLib unter
+`.libs/`, wenn ein BashLib-Klon da ist. `requirements-dev.txt` installiert
+ProjectTools selbst editierbar (`-e .`). Damit kommen BashLib und Deno aus den
+Abhängigkeiten in `pyproject.toml`; `make setup` braucht dafür Netz und
+Zugriff auf GitHub. Die Make-Targets finden BashLib dann über `bashlib-path`
+und Deno über `.venv/tools`. Ein frischer Klon braucht so nur die Werkzeuge
+aus der Tabelle oben. Der Hook prüft vor jedem Commit die vorgemerkte
 Doku mit `make docs-check`.
 
 `make setup` ist der einzige Weg, das Projekt einzurichten, und lässt sich
 beliebig oft aufrufen. Die Pakete gleicht es nur neu ab, wenn
-`requirements-dev.txt` oder eine eingebundene Requirements-Datei neuer ist
-als die Stempeldatei `.venv/.installed`. `make test`, `make test-python` und
+`requirements-dev.txt`, eine eingebundene Requirements-Datei oder
+`pyproject.toml` neuer ist als die Stempeldatei `.venv/.installed`. `make test`, `make test-python` und
 `make lint` richten nichts selbst ein: Fehlt die Einrichtung oder ist sie
 veraltet, brechen sie mit dem Hinweis auf `make setup` ab.
 
