@@ -12,6 +12,7 @@ Checkout, Befehle, Tests und Aufbau. Die Projektregeln stehen in
 - [Einrichten](#einrichten)
 - [Befehle](#befehle)
 - [Tests](#tests)
+- [Paket und Release](#paket-und-release)
 - [Projektaufbau](#projektaufbau)
 
 ## Voraussetzungen
@@ -107,6 +108,9 @@ Was die Suiten besonders prüfen:
   Exit-Codes.
 - **`tests/python/`** testet Changelog, Runner und `dockerhub-readme` mit
   temporären Git-Repositories und echten temporären venvs.
+  **`test_package.py`** baut das pip-Paket, installiert es ohne
+  Abhängigkeiten normal und editierbar und ruft die Befehle auf; BashLib kommt
+  dabei aus `BASH_LIBS` oder dem DevBash-Baum, Deno aus dem PATH.
 
 Für Python-Tests ohne Netz vorher Wheels herunterladen und
 `PIP_NO_INDEX=1 PIP_FIND_LINKS=<wheel-ordner>` setzen.
@@ -128,12 +132,32 @@ msgfmt <datei.po> -o <datei.mo>
 
 [↑ Übersicht](#übersicht)
 
+## Paket und Release
+
+`pyproject.toml` ist die einzige Quelle für Version, Befehle und
+Abhängigkeiten. Unter `dependencies` stehen BashLib (`mmit-bashlib` mit
+Release-Tag aus github.com/MikeMitterer/bash-lib) und `deno`; welche Skripte
+ins Paket kommen, steht unter `[tool.setuptools.package-data]`. Im Paket
+liegen sie unter `projecttools/tools/`; `projecttools.cli` startet sie von dort
+oder bei `pipx install -e` direkt aus `src/`.
+
+Das Paket verlangt Python ab 3.10, weil es das `deno`-Paket erst ab dieser
+Version gibt; direkt aufgerufen laufen die Werkzeuge weiter ab 3.9.
+`test_package.py` prüft, dass sich alle Abhängigkeiten vom Paketindex für die
+Mindestversion aus `requires-python` auflösen lassen.
+
+Ein Release ist ein Tag `vX.Y.Z` auf `master`, passend zu `version`. Für eine
+neue BashLib-Version zuerst deren Tag setzen, dann den Tag in `dependencies`
+anheben.
+
+[↑ Übersicht](#übersicht)
+
 ## Projektaufbau
 
 | Pfad | Inhalt |
 |---|---|
 | `src/bash/` | Bash-Skripte; `changelog.sh` und `dockerhub-readme.sh` sind Links auf `py-run.py` |
-| `src/python/` | Python-Werkzeuge, der Runner `py-run.py` und das Paket `projecttools` |
+| `src/python/` | Python-Werkzeuge, der Runner `py-run.py` und das Paket `projecttools` samt Befehlen (`projecttools/cli.py`) |
 | `src/deno/` | Die Prüfung von `docs-check` |
 | `tests/` | Tests je Sprache: `bash/`, `deno/`, `python/` |
 | `scripts/` | `setup-libs.sh` und `test-bash.sh` für das Makefile |

@@ -9,7 +9,11 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
 
 - Projektbezogene Dev-Scripts, die über mehrere Projekte geteilt werden
   (Abgrenzung: BashTools = projektunabhängige Tools mit `/usr/local/bin`-Deploy)
-- **Kein Deploy** — Konsum direkt via `PROJECT_TOOLS`-Env-Variable
+- **pipx-Paket** — `pipx install` mit Release-Tag liefert `docs-check`, `repo-status`,
+  `changelog` und `projecttools`; Version, Befehle und Abhängigkeiten (BashLib, deno)
+  stehen nur in `pyproject.toml`, die Befehle in `src/python/projecttools/cli.py`.
+  Tests: `.venv/bin/python -m pytest tests/python/test_package.py`
+- **Ohne Installation** — Konsum direkt via `PROJECT_TOOLS`-Env-Variable
   (`~/.ci.machine.bashrc` → `.../ProjectTools/src`) bzw. `.libs/ProjectTools`-Symlink
   in den Projekten
 

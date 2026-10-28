@@ -559,7 +559,8 @@ fi
 if ! command -v deno >/dev/null 2>&1; then
     {
         echo -e "${RED}Fehler:${NC} Deno nicht gefunden."
-        echo -e "${YELLOW}Tipp:${NC} Deno 2 installieren: ${GREEN}https://docs.deno.com/runtime/${NC}"
+        echo -e "${YELLOW}Tipp:${NC} ProjectTools mit pipx bringt deno mit: ${GREEN}pipx reinstall mmit-projecttools${NC}"
+        echo -e "      Sonst Deno 2 installieren: ${GREEN}https://docs.deno.com/runtime/${NC}"
     } >&2
     exit 1
 fi

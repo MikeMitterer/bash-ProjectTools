@@ -6,7 +6,8 @@
 Ist ein GitHub-Repo angegeben, folgen die offenen Issues mit Blocker- oder
 hoher Priorität. Ein Projekt ruft es meist über sein Make-Target `status` auf.
 
-Voraussetzungen: BashLib; für die Issue-Sektion die angemeldete `gh` CLI.
+Voraussetzungen: BashLib (im pipx-Paket enthalten, Befehl `repo-status`); für
+die Issue-Sektion die angemeldete `gh` CLI.
 
 ## Übersicht
 

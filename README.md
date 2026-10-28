@@ -12,14 +12,15 @@ ProjectTools sammelt Skripte, die mehrere Projekte gleich brauchen: Status
 der Repos, Doku-Prüfung, Ports des Dev-Stacks freigeben, npm-Pakete umschalten
 und veröffentlichen, Changelog und Docker-Hub-Beschreibung.
 
-Die Projekte rufen die Skripte direkt aus diesem Repo auf. Es gibt keinen
-Deploy und keine Kopie je Projekt.
+Projekte installieren ProjectTools mit pipx als versioniertes Paket; die
+Befehle `docs-check`, `repo-status` und `changelog` stehen dann im PATH.
+Daneben bleibt der direkte Aufruf aus einer Arbeitskopie über `PROJECT_TOOLS`.
 
 | Repo | Zweck | Konsum |
 |---|---|---|
 | BashLib | Wiederverwendbare Bash-Funktionen | `source` über `BASH_LIBS` |
 | BashTools | Werkzeuge unabhängig von Projekten | Deploy nach `/usr/local/bin` |
-| **ProjectTools** | Projektbezogene Entwicklungs-Skripte | Direkt über `PROJECT_TOOLS` oder den Symlink `.libs/ProjectTools` |
+| **ProjectTools** | Projektbezogene Entwicklungs-Skripte | `pipx install` mit Version; sonst direkt über `PROJECT_TOOLS` oder den Symlink `.libs/ProjectTools` |
 
 ## Übersicht
 
@@ -53,10 +54,28 @@ die übrigen Bash-Skripte brauchen sie.
 
 ## Schnellstart
 
-Voraussetzungen: Bash und Git; dazu je Werkzeug, was sein Dokument nennt,
-etwa Deno 2 für `docs-check.sh`.
+Voraussetzungen: Bash, Git, Python ab 3.10 und
+[pipx](https://pipx.pypa.io/); dazu je Werkzeug, was sein Dokument nennt.
 
-`PROJECT_TOOLS` zeigt auf `src/` dieses Repos. Ein Projekt legt zusätzlich den
+**Installieren** mit festem Release-Tag:
+
+```bash
+pipx install 'git+https://github.com/MikeMitterer/bash-ProjectTools.git@v0.2.0'
+projecttools --version
+```
+
+Danach stehen `docs-check`, `repo-status`, `changelog` und `projecttools` im
+PATH. Das Paket bringt BashLib und Deno als Abhängigkeiten mit; `.libs/` und
+`PROJECT_TOOLS` braucht es dafür nicht. Ein gesetztes `BASH_LIBS` hat Vorrang
+vor der mitgelieferten BashLib.
+
+**Aktualisieren:** Für einen neuen Release-Tag `pipx install --force` mit dem
+neuen Tag aufrufen; `pipx upgrade mmit-projecttools` holt den Stand der
+installierten Quelle neu. Wer an ProjectTools arbeitet, installiert die
+Arbeitskopie mit `pipx install -e <arbeitskopie>`; Änderungen an den Skripten
+wirken dann ohne Neuinstallation.
+
+**Ohne Installation** zeigt `PROJECT_TOOLS` auf `src/` dieses Repos. Ein Projekt legt zusätzlich den
 Symlink `.libs/ProjectTools` an und setzt im Makefile:
 
 ```makefile
@@ -71,8 +90,10 @@ Am Beispiel des Repo-Status:
 "$PROJECT_TOOLS/bash/repo-status.sh" --show
 ```
 
-Wie die Skripte in Make-Targets eingebunden werden, steht im jeweiligen
-Werkzeug-Dokument.
+Installiert heißen dieselben Aufrufe `repo-status --example` und
+`repo-status --show`. Wie die Skripte in Make-Targets eingebunden werden,
+steht im jeweiligen Werkzeug-Dokument. Die Projektkopie von `setup-libs.sh`,
+die `.libs/ProjectTools` anlegt, ist durch die Installation abgelöst.
 
 [↑ Übersicht](#übersicht)
 

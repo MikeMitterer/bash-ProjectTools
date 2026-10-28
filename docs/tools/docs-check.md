@@ -8,8 +8,10 @@ eine interne Kennung soll nicht mehr in der Nutzerdoku stehen. Eine Regel in
 `docs-check.sh` prüft alle Nutzerdokumente bei jedem Lauf, etwa als Teil von
 `make test`.
 
-Voraussetzung: Deno 2. BashLib ist optional; ohne sie läuft das Skript mit
-einfachen Farben.
+Voraussetzung: Deno 2; als pipx-Paket installiert (Befehl `docs-check`, siehe
+[README](../../README.md#schnellstart)) bringt ProjectTools Deno mit. Fehlt
+Deno, bricht das Skript mit Exit-Code 1 ab und nennt beide Wege. BashLib ist
+optional; ohne sie läuft das Skript mit einfachen Farben.
 
 ## Übersicht
 
