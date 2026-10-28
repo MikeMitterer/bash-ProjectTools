@@ -60,6 +60,7 @@ aus `PROJECT_TOOLS` der Umgebung.
 | Befehl | Zweck |
 |---|---|
 | `make help` | Alle Targets anzeigen |
+| `make check` | Voller Prüflauf: Doku-Prüfung, alle Tests und Lint; so prüft auch agent-lessons (`integration_check`) |
 | `make test` | Doku-Prüfung, Bash-, Deno- und Python-Tests |
 | `make test-bash32` | Bash-Tests unter `/bin/bash` 3.2 (macOS) |
 | `make lint` | Shellcheck, `deno lint` und Ruff |

@@ -121,8 +121,12 @@ testHilfeOhneBibliotheken() {
     runMake help
     assertEquals "0" "${rc}" "help: laeuft ohne .libs/ und BASH_LIBS"
     assertOutputContains "Versionierung" "help: Gruppe Versionierung"
-    for target in version tags tag-major tag-minor tag-patch; do
-        assertOutputContains "${target} " "help: ${target} gelistet"
+    for target in check version tags tag-major tag-minor tag-patch; do
+        if grep -qE "^[[:space:]]+${target}[[:space:]]" <<< "${output}"; then
+            report 0 "help: ${target} gelistet"
+        else
+            report 1 "help: ${target} gelistet ${YELLOW}(keine Zeile fuer ${target})${NC}"
+        fi
     done
     assertOutputContains "[Maintainer]" "help: Maintainer-Targets markiert"
 }
@@ -149,6 +153,10 @@ testRequireSetup() {
     runMake test-python
     assertFailed "test-python: haengt an require-setup"
     assertOutputContains "make setup" "test-python: nennt make setup"
+    runMake check
+    assertFailed "check: haengt an require-setup"
+    assertOutputContains "make setup" "check: nennt make setup"
+    assertOutputContains "Nicht eingerichtet" "check: bricht vor den Tests ab"
 
     mkdir -p "${fixture}/project/.venv"
     touch "${fixture}/project/.venv/.installed"
