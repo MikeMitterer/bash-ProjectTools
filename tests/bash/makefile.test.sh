@@ -217,6 +217,28 @@ testBashTestsOhneBashLib() {
     fi
 }
 
+# Tag-Namen und Remote-URLs kommen von aussen und duerfen $, ( und )
+# enthalten. hints darf sie nie als Befehl ausfuehren; Werte mit anderen als
+# den erlaubten Zeichen gelten als nicht vorhanden.
+testHintsFuehrenKeineBefehleAusGit() {
+    local project="${fixture}/project"
+    git -C "${project}" init -q
+    git -C "${project}" -c user.name=T -c user.email=t@example.invalid \
+        commit -q --allow-empty -m test
+    # shellcheck disable=SC2016  # Die Expansion soll gerade nicht hier passieren
+    git -C "${project}" tag 'v1$(touch${IFS}PWNED_TAG)'
+    # shellcheck disable=SC2016
+    git -C "${project}" remote add origin 'git@github.com:A/b$(touch${IFS}PWNED_REMOTE).git'
+    runMake hints
+    assertEquals "0" "${rc}" "hints: Exit 0 mit boesartigem Tag und Remote"
+    assertEquals "no" "$([[ -e "${project}/PWNED_TAG" ]] && echo yes || echo no)" \
+        "hints: Tag-Name wird nicht ausgefuehrt"
+    assertEquals "no" "$([[ -e "${project}/PWNED_REMOTE" ]] && echo yes || echo no)" \
+        "hints: Remote-URL wird nicht ausgefuehrt"
+    assertOutputContains "kein Remote origin" "hints: ungueltiger Remote gilt als fehlend"
+    command rm -rf -- "${project}/.git" "${project}/PWNED_TAG" "${project}/PWNED_REMOTE"
+}
+
 testCleanEntferntBuildReste() {
     mkdir -p "${fixture}/project/build/lib" "${fixture}/project/src/python/demo.egg-info"
     runMake clean
@@ -238,6 +260,7 @@ runAll() {
     testHilfeOhneBibliotheken
     testHintsBuendig
     testHintsLesenRepoAusRemote
+    testHintsFuehrenKeineBefehleAusGit
     testMaintainerTargetsBrechenAb
     testRequireSetup
     testBashTestsOhneBashLib

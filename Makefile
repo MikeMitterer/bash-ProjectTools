@@ -91,8 +91,10 @@ info: ## Umgebungsvariablen anzeigen
 # Repo-Adresse aus git remote origin (SSH oder HTTPS) als https-URL, und der
 # letzte Release-Tag. Nichts davon steht fest im Makefile: Zieht das Repo um,
 # stimmen die Hinweise weiter. Leer ohne Remote bzw. ohne Tag.
-REPO_URL    := $(shell git remote get-url origin 2>/dev/null | sed -E 's|^git@([^:]+):|https://\1/|; s|\.git$$||')
-RELEASE_TAG := $(or $(shell git describe --tags --abbrev=0 2>/dev/null),vX.Y.Z)
+# Beide Werte kommen von außen (Ref-Namen dürfen $, ( und ) enthalten) und
+# landen im Rezept; deshalb gelten sie nur aus erlaubten Zeichen, sonst leer.
+REPO_URL    := $(shell git remote get-url origin 2>/dev/null | sed -E 's|^git@([^:]+):|https://\1/|; s|\.git$$||' | grep -xE '[A-Za-z0-9._:/@+~-]+')
+RELEASE_TAG := $(or $(shell git describe --tags --abbrev=0 2>/dev/null | grep -xE '[A-Za-z0-9._+-]+'),vX.Y.Z)
 NO_REMOTE   := kein Remote origin (git remote add origin …)
 
 # Eine Zeile für hints: Beschriftung, auf THEME_WIDTH_TARGET Zeichen aufgefüllt,
