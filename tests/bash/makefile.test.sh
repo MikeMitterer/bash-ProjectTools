@@ -33,6 +33,7 @@ tests_run=0
 tests_failed=0
 fixture=""
 output=""
+MAKE_ENV=()
 rc=0
 
 usage() {
@@ -95,16 +96,18 @@ assertFailed() {
 
 # Startet make in der Kopie mit leerer Umgebung; Ausgabe ohne Farbcodes in
 # ${output}, Exit-Code in ${rc}. Ohne MakeLib setzt das Makefile Ersatzfarben.
+# MAKE_PATH ersetzt den PATH, MAKE_ENV (Array) setzt weitere Variablen.
 runMake() {
     rc=0
-    output="$(cd "${fixture}/project" && env -i PATH="${PATH}" HOME="${HOME}" \
-        make --no-print-directory "$@" 2>&1)" || rc=$?
+    output="$(cd "${fixture}/project" && env -i PATH="${MAKE_PATH:-${PATH}}" HOME="${HOME}" \
+        "${MAKE_ENV[@]+"${MAKE_ENV[@]}"}" make --no-print-directory "$@" 2>&1)" || rc=$?
     output="$(printf '%s' "${output}" | sed $'s/\x1b\\[[0-9;]*m//g')"
 }
 
 # Kopiert den Arbeitsstand ohne von git ignorierte Dateien in einen Temp-Ordner.
 setupFixture() {
     fixture="$(mktemp -d "${TMPDIR:-/tmp}/makefile-test.XXXXXX")"
+    fixture="$(cd "${fixture}" && pwd -P)"   # wie WORKSPACE im Makefile (realpath)
     mkdir -p "${fixture}/project"
     (cd "${PROJECT_ROOT}" && git ls-files -z --cached --others --exclude-standard |
         while IFS= read -r -d '' path; do [[ -e "${path}" || -L "${path}" ]] && printf '%s\0' "${path}"; done |
@@ -247,6 +250,59 @@ testHintsFuehrenKeineBefehleAusGit() {
     command rm -rf -- "${project}/.git" "${project}/PWNED_TAG" "${project}/PWNED_REMOTE"
 }
 
+# pyproject.toml gehoert zu den Abhaengigkeiten der Einrichtung: BashLib und
+# deno kommen ueber `-e .` aus seinen dependencies.
+testEinrichtungHaengtAnPyproject() {
+    assertEquals "yes" "$(grep -qxE -- '-e \.' "${fixture}/project/requirements-dev.txt" && echo yes)" \
+        "requirements-dev.txt installiert das Projekt selbst (-e .)"
+    mkdir -p "${fixture}/project/.venv"
+    touch -t 202001010000 "${fixture}/project/.venv/.installed"
+    touch -t 202001010000 "${fixture}/project/requirements-dev.txt" \
+        "${fixture}/project/src/python/dockerhub-readme.requirements.txt"
+    touch "${fixture}/project/pyproject.toml"
+    runMake require-setup
+    assertFailed "require-setup: pyproject.toml neuer als der Stempel"
+    command rm -rf -- "${fixture}/project/.venv"
+}
+
+# BASH_LIBS: .libs/ und der Nachbar wie bisher, sonst bashlib-path aus der venv.
+testBashLibsAusVenv() {
+    local lib="${fixture}/venvlib"
+    mkdir -p "${lib}" "${fixture}/project/.venv/bin"
+    : > "${lib}/tools.lib.sh"
+    printf '#!/bin/sh\necho "%s"\n' "${lib}" > "${fixture}/project/.venv/bin/bashlib-path"
+    chmod +x "${fixture}/project/.venv/bin/bashlib-path"
+    runMake info
+    assertOutputContains "BASH_LIBS        = ${lib}" "BASH_LIBS: aus bashlib-path der venv"
+    mkdir -p "${fixture}/project/.libs/BashLib/src"
+    runMake info
+    assertOutputContains "BASH_LIBS        = ${fixture}/project/.libs/BashLib/src" \
+        "BASH_LIBS: .libs/ hat Vorrang vor der venv"
+    command rm -rf -- "${fixture}/project/.venv" "${fixture}/project/.libs" "${lib}"
+}
+
+# deno aus der venv (.venv/tools), auch wenn der PATH keins kennt.
+testDenoAusVenv() {
+    mkdir -p "${fixture}/project/.venv/tools"
+    printf '#!/bin/sh\necho "VENV-DENO $*"\n' > "${fixture}/project/.venv/tools/deno"
+    chmod +x "${fixture}/project/.venv/tools/deno"
+    MAKE_PATH="/usr/bin:/bin" runMake test-deno
+    assertOutputContains "VENV-DENO test" "test-deno: nimmt deno aus .venv/tools"
+    command rm -rf -- "${fixture}/project/.venv"
+}
+
+# Ohne Paketindex bricht setup klar ab und legt keinen Stempel an.
+testSetupOhneIndexKlar() {
+    MAKE_ENV=(PIP_NO_INDEX=1 PIP_FIND_LINKS=)
+    runMake setup
+    MAKE_ENV=()
+    assertFailed "setup: ohne Paketindex Abbruch"
+    assertOutputContains "Pakete nicht installiert" "setup: klare Meldung"
+    assertEquals "no" "$([[ -e "${fixture}/project/.venv/.installed" ]] && echo yes || echo no)" \
+        "setup: kein Stempel nach Abbruch"
+    command rm -rf -- "${fixture}/project/.venv"
+}
+
 testCleanEntferntBuildReste() {
     mkdir -p "${fixture}/project/build/lib" "${fixture}/project/src/python/demo.egg-info"
     runMake clean
@@ -272,6 +328,10 @@ runAll() {
     testMaintainerTargetsBrechenAb
     testRequireSetup
     testBashTestsOhneBashLib
+    testEinrichtungHaengtAnPyproject
+    testBashLibsAusVenv
+    testDenoAusVenv
+    testSetupOhneIndexKlar
     testCleanEntferntBuildReste
 
     echo

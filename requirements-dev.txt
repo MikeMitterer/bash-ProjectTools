@@ -1,6 +1,9 @@
 # Python-Werkzeuge für die Entwicklung von ProjectTools (make setup).
 # Verbraucher installieren das nicht; py-run.sh richtet je Werkzeug eine
 # eigene venv ein.
+# ProjectTools selbst, editierbar: bringt BashLib (bashlib-path) und deno aus
+# den dependencies in pyproject.toml mit, der einzigen Quelle dafür.
+-e .
 -r src/python/dockerhub-readme.requirements.txt
 pytest
 ruff
