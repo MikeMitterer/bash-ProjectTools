@@ -23,7 +23,7 @@ Checkout, Befehle, Tests und Aufbau. Die Projektregeln stehen in
 | Python 3.14 | Entwicklungs-venv für die Python-Tests und Ruff (`PYTHON_BOOTSTRAP` wählt einen anderen Interpreter) |
 | Pandoc | `dockerhub-readme` |
 | `shellcheck` | `make lint` |
-| BashLib, MakeLib | Werden von `make setup` unter `.libs/` verlinkt; ohne BashLib laufen nur `status` und einige Skripte nicht |
+| BashLib, MakeLib | Werden von `make setup` unter `.libs/` verlinkt. Ohne BashLib laufen `status`, `version`, `tag-*`, einige Skripte und die Bash-Tests nicht; `make test-bash` nennt dann den Weg (Klon neben ProjectTools oder `BASH_LIBS`) |
 
 Die Werkzeuge selbst laufen schon ab Python 3.9. Mit einer venv aus Python
 3.9 scheitern aber einige Bootstrap-Tests von `dockerhub-readme`; deshalb die
@@ -42,6 +42,13 @@ pre-commit-Hook aus `.githooks/` und legt `.venv` mit den Paketen aus
 `requirements-dev.txt` an. Der Hook prüft vor jedem Commit die vorgemerkte
 Doku mit `make docs-check`.
 
+`make setup` ist der einzige Weg, das Projekt einzurichten, und lässt sich
+beliebig oft aufrufen. Die Pakete gleicht es nur neu ab, wenn
+`requirements-dev.txt` oder eine eingebundene Requirements-Datei neuer ist
+als die Stempeldatei `.venv/.installed`. `make test`, `make test-python` und
+`make lint` richten nichts selbst ein: Fehlt die Einrichtung oder ist sie
+veraltet, brechen sie mit dem Hinweis auf `make setup` ab.
+
 Die Make-Targets verwenden immer die Skripte aus diesem Checkout, nicht die
 aus `PROJECT_TOOLS` der Umgebung.
 
@@ -57,7 +64,10 @@ aus `PROJECT_TOOLS` der Umgebung.
 | `make lint` | Shellcheck, `deno lint` und Ruff |
 | `make docs-check` | Nur die Doku-Prüfung |
 | `make status` | Git-Status und offene Blocker-Issues (braucht BashLib) |
-| `make clean` | Test- und Lint-Caches löschen |
+| `make clean` | Test- und Lint-Caches und Reste von Paket-Builds löschen |
+| `make version` | Version aus `pyproject.toml` und letzten Tag zeigen (braucht BashLib) |
+| `make tags` | Die letzten zehn Tags mit Nachricht |
+| `make tag-patch MSG="…"` | Version erhöhen, committen, taggen und pushen; ebenso `tag-minor`, `tag-major` (braucht BashLib) |
 
 Einzelne Teile laufen auch über `make test-bash`, `make test-deno` und
 `make test-python`; `ARGS` reicht Optionen an pytest weiter:
@@ -88,6 +98,10 @@ Was die Suiten besonders prüfen:
 - **`tests/bash/dev-ports.test.sh`** startet echte Server auf freien Ports und
   prüft, dass Prozesse außerhalb des Projekts weiterlaufen und mehrfache, auch
   gleichzeitige Aufrufe gelingen.
+- **`tests/bash/makefile.test.sh`** startet `make` in einer Kopie ohne
+  `.libs/` und mit leerer Umgebung: Hilfe, Hints, Abbruch der
+  Maintainer-Targets, `require-setup` samt veralteter Stempeldatei und
+  `clean`.
 - **`tests/deno/docs-check.test.ts`** prüft die Regeln, mit Kanarienwerten in
   sensiblen Dateien; **`tests/bash/docs-check.test.sh`** Config, Optionen und
   Exit-Codes.

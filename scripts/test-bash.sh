@@ -25,12 +25,27 @@ usage() {
     printf '    %-12s %s\n\n' "--help" "Diese Hilfe anzeigen"
 }
 
+# Die Suiten binden BashLib ein (wie in den Suiten: BASH_LIBS, sonst der
+# Nachbar im DevBash-Baum). Fehlt sie, einmal klar abbrechen statt in jeder Suite.
+#
+# Returns:
+#   0 wenn BashLib lesbar ist, 1 sonst
+requireBashLib() {
+    local -r _LIBS="${BASH_LIBS:-${PROJECT_ROOT}/../BashLib/src}"
+    [[ -r "${_LIBS}/tools.lib.sh" ]] && return 0
+    printf '✗ BashLib fehlt (%s): Die Bash-Tests brauchen sie.\n' "${_LIBS}" >&2
+    printf '  Neben ProjectTools klonen: git clone https://github.com/MikeMitterer/bash-lib.git ../BashLib\n' >&2
+    printf '  danach make setup, oder BASH_LIBS auf deren src setzen.\n' >&2
+    return 1
+}
+
 # Führt jede Suite aus und meldet das Ergebnis je Suite.
 #
 # Returns:
 #   0 wenn alle Suiten grün sind, 1 sonst
 runSuites() {
     local _SUITE _FAILED=0
+    requireBashLib || return 1
     printf '\n%s\n' "$(bash --version | head -1)"
     for _SUITE in "${PROJECT_ROOT}"/tests/bash/*.test.sh; do
         if ! bash "${_SUITE}" --run; then
