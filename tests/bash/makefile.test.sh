@@ -161,6 +161,20 @@ testRequireSetup() {
     assertOutputContains "veraltet" "require-setup: nennt veraltet"
 }
 
+# Ohne BashLib brechen die Bash-Tests einmal mit klarer Meldung ab statt in
+# jeder Suite mit einem fehlenden tools.lib.sh.
+testBashTestsOhneBashLib() {
+    runMake test-bash
+    assertFailed "test-bash: ohne BashLib Abbruch"
+    assertOutputContains "BashLib fehlt" "test-bash: nennt BashLib"
+    assertOutputContains "bash-lib.git" "test-bash: nennt den Weg"
+    if [[ "${output}" == *"fehlgeschlagen"* ]]; then
+        report 1 "test-bash: keine Suite gestartet ${YELLOW}(Suiten liefen)${NC}"
+    else
+        report 0 "test-bash: keine Suite gestartet"
+    fi
+}
+
 testCleanEntferntBuildReste() {
     mkdir -p "${fixture}/project/build/lib" "${fixture}/project/src/python/demo.egg-info"
     runMake clean
@@ -183,6 +197,7 @@ runAll() {
     testHintsNennenPipx
     testMaintainerTargetsBrechenAb
     testRequireSetup
+    testBashTestsOhneBashLib
     testCleanEntferntBuildReste
 
     echo
