@@ -11,3 +11,7 @@ node_modules/
 .venv/
 /_tickets/
 /.worktrees/
+
+# Reste von Paket-Builds (pip wheel, pip install -e)
+build/
+*.egg-info/
