@@ -18,6 +18,7 @@
 # Muster. Ein Muster ohne Treffer ist ein Problem.
 DOCS=(
     "README.md"
+    "README.de.md"
     "docs"
 )
 
@@ -121,6 +122,7 @@ INTERNAL_VARIABLES=(
 #   "./docs/**/*.md"      Muster: mindestens ein Treffer
 REQUIRED=(
     "./README.md"
+    "./README.de.md|deutsche Fassung des README"
     "./docs/development.md|im README verlinkt"
     "./docs/python-package.md|im README verlinkt"
     "./docs/cli-themes.md|im README verlinkt"
@@ -165,7 +167,8 @@ SCREENSHOTS=(
 # Hinweis, nach <tage> Tagen ein Problem; 0 heißt: im selben Commit. Die Basis
 # darf ein Ordner, ein Muster oder eine Liste mit Komma sein.
 DEPENDS=(
-    # "README.md|README.de.md|3|deutsche Fassung"
+    # Wer eine Fassung ändert, zieht die andere im selben Commit nach
+    "README.md|README.de.md|0|deutsche Fassung"
 )
 
 # Gleiches Format, auch überfällig nur ein Hinweis: für Basen, die sich oft
@@ -182,6 +185,7 @@ DEPENDS_HINT=(
     "src/python/projecttools/ui/colors.py|docs/cli-themes.md|30|Theme-Beschreibung"
     "Makefile,requirements-dev.txt,scripts|docs/development.md|30|Befehle und Einrichten"
     "docs/README.template.md|README.md|30|README folgt der Projektvorlage"
+    "docs/README.template.md|README.de.md|30|README folgt der Projektvorlage"
 )
 
 # Optional: Sprachfassungen mit derselben Gliederung, je
@@ -190,4 +194,5 @@ DEPENDS_HINT=(
 # Anzahl), Hinweisboxen und Absätze. Fehlt in einer Fassung ein Teil, ist das
 # ein Problem. Den übersetzten Text selbst prüft das nicht.
 TRANSLATIONS=(
+    "README.md|README.de.md|deutsche Fassung des README"
 )

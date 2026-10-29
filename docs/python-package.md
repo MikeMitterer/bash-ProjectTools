@@ -19,7 +19,7 @@ Das zieht BashLib und Deno als Abhängigkeiten mit und braucht deshalb
 Python ab 3.10; wer nur die Python-Module braucht, ergänzt `--no-deps`, dann
 reicht Python 3.9. Die Befehle `docs-check`,
 `repo-status` und `changelog` installiert man dagegen mit pipx (siehe
-[README](../README.md#schnellstart)).
+[README](../README.de.md#schnellstart)).
 
 Danach ist `from projecttools.ui.colors import HelpFormatter, Theme` ohne
 maschinenabhängigen Pfad oder `sys.path`-Änderung möglich. Die Installation
