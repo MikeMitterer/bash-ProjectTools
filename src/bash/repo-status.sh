@@ -245,6 +245,26 @@ stripAnsi() {
     echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g'
 }
 
+# Prueft, ob ein Pfad die Wurzel eines eigenen Git-Checkouts ist.
+#
+# Fragt Git selbst statt `-d .git`: In einem Git-Worktree ist `.git` eine
+# Datei. Ein Ordner, der nur in einem uebergeordneten Repo liegt, zaehlt
+# nicht — seine Wurzel ist eine andere.
+#
+# Params:
+#   $1 - Pfad zum Repo
+#
+# Returns:
+#   0 wenn der Pfad die Wurzel eines Checkouts ist, sonst 1
+isCheckout() {
+    local repo_path="$1"
+    local top_level
+
+    [[ -d "${repo_path}" ]] || return 1
+    top_level=$(git -C "${repo_path}" rev-parse --show-toplevel 2>/dev/null) || return 1
+    [[ "$(cd "${top_level}" && pwd -P)" == "$(cd "${repo_path}" && pwd -P)" ]]
+}
+
 # Gibt eine einzelne Repo-Zeile aus.
 #
 # Params:
@@ -254,7 +274,7 @@ printRepoRow() {
     local repo_name="$1"
     local repo_path="$2"
 
-    if [[ ! -d "${repo_path}/.git" ]]; then
+    if ! isCheckout "${repo_path}"; then
         printf "    ${BLUE}%-${COL_WIDTH_NAME}s${NC}  ${YELLOW}%s${NC}\n" \
             "${repo_name}" "nicht ausgecheckt"
         return

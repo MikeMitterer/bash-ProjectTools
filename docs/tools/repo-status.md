@@ -26,6 +26,10 @@ repo-status.sh --show                             # Status anzeigen
 `--example` erkennt die vorhandenen Git-Repos selbst (Root und Sub-Repos bis
 zwei Ebenen tief) und belegt `ISSUES_REPO` aus dem `origin`-Remote vor.
 
+Ob ein Pfad ausgecheckt ist, fragt `--show` Git selbst: Auch ein Git-Worktree
+(`.git` ist dort eine Datei) zeigt seinen Zustand. „nicht ausgecheckt“ heißt,
+der Pfad fehlt oder ist nicht die Wurzel eines eigenen Repos.
+
 [↑ Übersicht](#übersicht)
 
 ## Format `.repo-status.conf.sh`

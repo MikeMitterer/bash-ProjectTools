@@ -29,7 +29,8 @@ ProjectTools ist Teil des **DevBash-Ökosystems** unter `/Volumes/DevLocal/DevBa
 ## Tools
 
 - `src/bash/repo-status.sh` — Git-Status aller Workspace-Repos (Config: `.repo-status.conf.sh`,
-  optional `ISSUES_REPO` für die GitHub-Issue-Sektion)
+  optional `ISSUES_REPO` für die GitHub-Issue-Sektion). Ob ein Repo ausgecheckt ist, fragt
+  `isCheckout()` Git selbst — im Worktree ist `.git` eine Datei. Tests: `tests/bash/repo-status.test.sh --run`
 - `src/bash/pkg-link.sh` — npm-Paket zwischen lokalem Repo und Registry umschalten
   (Config: `.pkg-link.conf.sh` mit `PACKAGE_ROOT` und `PACKAGES`). Alle
   Datei-Operationen laufen über `removeSymlink()`/`movePathSafely()`: Ein `mv` auf

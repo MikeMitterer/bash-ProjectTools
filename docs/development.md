@@ -106,6 +106,9 @@ Was die Suiten besonders prüfen:
 - **`tests/bash/dev-ports.test.sh`** startet echte Server auf freien Ports und
   prüft, dass Prozesse außerhalb des Projekts weiterlaufen und mehrfache, auch
   gleichzeitige Aufrufe gelingen.
+- **`tests/bash/repo-status.test.sh`** legt echte Repos an: Hauptcheckout,
+  Git-Worktree (`.git` als Datei), Ordner in einem fremden Repo und fehlender
+  Pfad.
 - **`tests/bash/makefile.test.sh`** startet `make` in einer Kopie ohne
   `.libs/` und mit leerer Umgebung: Hilfe, Hints, Abbruch der
   Maintainer-Targets, `require-setup` samt veralteter Stempeldatei und
