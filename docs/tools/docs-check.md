@@ -9,7 +9,7 @@ eine interne Kennung soll nicht mehr in der Nutzerdoku stehen. Eine Regel in
 `make test`.
 
 Voraussetzung: Deno 2; als pipx-Paket installiert (Befehl `docs-check`, siehe
-[README](../../README.md#schnellstart)) bringt ProjectTools Deno mit. Fehlt
+[README](../../README.de.md#schnellstart)) bringt ProjectTools Deno mit. Fehlt
 Deno, bricht das Skript mit Exit-Code 1 ab und nennt beide Wege. BashLib ist
 optional; ohne sie läuft das Skript mit einfachen Farben.
 

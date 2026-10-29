@@ -15,7 +15,10 @@ Abschnitte erscheinen im README.
 `docs-conventions` und werden hier nicht wiederholt. Was geprüft wird, legt
 `.docs-check.conf.sh` fest.
 
-**Sprache:** Deutsch, für README und alle Dokumente unter `docs/`.
+**Sprache:** `README.md` englisch, daneben `README.de.md` deutsch mit
+derselben Gliederung (Sprachzeile im Kopf, `TRANSLATIONS` in
+`.docs-check.conf.sh`); alle Dokumente unter `docs/` deutsch. Links aus
+`docs/` auf Abschnitte des README zeigen auf `README.de.md`.
 
 **Zielgruppe:** Entwickler eines Projekts, das ProjectTools einbindet. Das
 README zeigt, welche Werkzeuge es gibt und wie man sie einbindet; wie ein
