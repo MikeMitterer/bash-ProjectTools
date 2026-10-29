@@ -29,6 +29,7 @@ Daneben bleibt der direkte Aufruf aus einer Arbeitskopie über `PROJECT_TOOLS`.
 - [Konfiguration](#konfiguration)
 - [Entwicklung](#entwicklung)
 - [Weitere Dokumentation](#weitere-dokumentation)
+- [Lizenz](#lizenz)
 
 ## Werkzeuge
 
@@ -134,5 +135,32 @@ der [Entwicklerdoku](docs/development.md).
   unter `projecttools` in der venv eines anderen Projekts nutzen.
 - [CLI-Themes und Abstände](docs/cli-themes.md): gemeinsame Farben und
   Layout von MakeLib, BashLib und ProjectTools.
+
+[↑ Übersicht](#übersicht)
+
+## Lizenz
+
+Copyright © 2026 Michael Mitterer. **MangoLila GmbH** ist Anbieterin und
+Lizenzgeberin.
+
+ProjectTools steht unter der **[EUPL 1.2](LICENSE)**, nur Version 1.2. Sie
+erlaubt private und gewerbliche Nutzung, Änderungen, Weitergabe, Verkauf und
+Hosting ohne kostenpflichtige Lizenz.
+
+Wer ProjectTools oder eine geänderte Fassung weitergibt oder als
+Netzwerkdienst anbietet, muss die Urheber- und Lizenzhinweise erhalten,
+Änderungen kennzeichnen und den zugehörigen Quelltext nach den
+Copyleft-Regeln der Lizenz bereitstellen.
+
+Die Gewährleistungs- und Haftungsausschlüsse der EUPL-Artikel 7 und 8 gelten
+auch gegenüber Verbrauchern, soweit das Gesetz es zulässt. Zwingende Rechte
+bleiben unberührt, darunter die Haftung für Vorsatz, grobe Fahrlässigkeit,
+Personenschäden und nach dem Produkthaftungsgesetz. Eine zusätzliche Garantie
+wird nicht übernommen.
+
+Kontakt: **office@MangoLila.at**.
+
+Details: [LICENSE](LICENSE) · [Deutscher Lizenztext](LICENSE.de.txt) ·
+[Anbieter- und Verbrauchererklärung](LICENSING.md)
 
 [↑ Übersicht](#übersicht)
