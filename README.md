@@ -61,9 +61,9 @@ Requirements: Bash, Git, Python 3.10 or later and
 [pipx](https://pipx.pypa.io/); plus whatever each tool's document lists.
 
 **Install** with a fixed release tag. Tags follow the scheme
-`vX.Y.Z+JJMMTT.HHMM.hash` (date and time as YYMMDD.HHMM), and pipx needs the
-full tag. In a working copy `make hints` shows the latest one; without a
-working copy, this command does:
+`vX.Y.Z+YYMMDD.HHMM.hash` (build date and time), and pipx needs the full tag.
+In a working copy `make hints` shows the latest one; without a working copy,
+this command does:
 
 ```bash
 git ls-remote --tags --refs --sort=-v:refname https://github.com/MikeMitterer/bash-ProjectTools.git | head -1
@@ -114,7 +114,7 @@ creates `.libs/ProjectTools`, is superseded by the installation.
 
 **Each script reads its config from the working directory.** The name follows
 the script: `repo-status.sh` reads `.repo-status.conf.sh`; the extension
-`.conf` without `.sh` works as well. `--config <datei>` selects a different
+`.conf` without `.sh` works as well. `--config <file>` selects a different
 file.
 
 The config is a Bash snippet that the script sources and then validates. It

@@ -61,8 +61,9 @@ Voraussetzungen: Bash, Git, Python ab 3.10 und
 [pipx](https://pipx.pypa.io/); dazu je Werkzeug, was sein Dokument nennt.
 
 **Installieren** mit festem Release-Tag. Tags folgen dem Schema
-`vX.Y.Z+JJMMTT.HHMM.hash`, und pipx braucht den vollen Tag. Den jüngsten
-nennt `make hints` in einer Arbeitskopie, ohne Arbeitskopie dieser Befehl:
+`vX.Y.Z+YYMMDD.HHMM.hash` (Datum als JJMMTT, dann Uhrzeit), und pipx braucht
+den vollen Tag. Den jüngsten nennt `make hints` in einer Arbeitskopie, ohne
+Arbeitskopie dieser Befehl:
 
 ```bash
 git ls-remote --tags --refs --sort=-v:refname https://github.com/MikeMitterer/bash-ProjectTools.git | head -1
@@ -111,7 +112,7 @@ die `.libs/ProjectTools` anlegt, ist durch die Installation abgelöst.
 
 **Jedes Skript liest seine Config aus dem Arbeitsverzeichnis.** Der Name folgt
 dem Skript: `repo-status.sh` liest `.repo-status.conf.sh`; die Endung `.conf`
-ohne `.sh` gilt ebenfalls. `--config <datei>` wählt eine andere Datei.
+ohne `.sh` gilt ebenfalls. `--config <file>` wählt eine andere Datei.
 
 Die Config ist ein Bash-Snippet, das das Skript sourct und danach prüft. Sie
 enthält deshalb nur Zuweisungen und gehört ins jeweilige Projekt-Repo.
