@@ -54,8 +54,7 @@ das wieder.
 
 Zentriert und nur der Kopf: Name als Überschrift, fette Subheadline in einer
 Zeile, Link-Leiste zu Werkzeuge, Schnellstart, Konfiguration und
-Entwicklerdoku, getrennt durch ` · `. Badges nur für belegte Fakten; heute
-gibt es weder Version noch Lizenzdatei.
+Entwicklerdoku, getrennt durch ` · `. Badges nur für belegte Fakten.
 
 ## 2. Überblick
 
@@ -124,5 +123,5 @@ nicht.
 
 ## 10. Lizenz
 
-Erst wenn das Repo eine Lizenzdatei hat; dann nach den Lizenzregeln von
-`docs-conventions`. Heute gibt es keine, also entfällt der Abschnitt.
+Nach den Lizenzregeln von `docs-conventions` (EUPL-Baustein), belegt aus
+`LICENSE`, `LICENSE.de.txt` und `LICENSING.md`. In der Übersicht verlinkt.
